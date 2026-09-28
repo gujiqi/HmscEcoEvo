@@ -2,6 +2,10 @@
 
 **HmscEcoEvo** is an R package for exploring how present-day community patterns relate to species traits, phylogeny, historical environments and changing geography. It builds on fitted HMSC results and retains the historical-predictor tools from `hmscHist`.
 
+![HmscEE workflow: inputs, ancestral responses, changing Earth, biological processes and outputs](man/figures/readme_workflow.png)
+
+*Framework overview. The six process groups organize package functions; a case study uses only processes supported by its data.*
+
 ## What can you do with it?
 
 - **Prepare historical predictors for HMSC.** Standardize species-by-region histories, calculate historical indices, and create HMSC-ready site and trait tables.
@@ -12,6 +16,18 @@
 - **Summarize spatial results.** Make time-slice maps and derived summaries of lineage richness, diversity, community change, connected patches and candidate refugia. Source and corridor maps are labelled by the evidence used to produce them.
 
 The functions are organized around six biological processes: environmental filtering, dispersal, biotic filtering, evolution, speciation and extinction. **A case study need not estimate all six.** In particular, the current Plant200 Case05 does not estimate historical establishment, persistence or complete lineage-extinction rates from the available data.
+
+## Example maps
+
+Selected Plant200 outputs on a 4-degree palaeogeographic grid. Click a panel for the full-size figure. These are model-derived results, not direct observations of past ranges.
+
+| Ancestral environmental support | Potential local movement |
+| --- | --- |
+| [![Environmental support across four time slices and three response-evolution models](man/figures/readme_environmental_support.png)](man/figures/readme_environmental_support.png) | [![Potential local movement at six historical times](man/figures/readme_potential_movement.png)](man/figures/readme_potential_movement.png) |
+| Time-matched ancestral responses and palaeoenvironment; **not occupancy**. | Landscape-based movement opportunity; **not observed dispersal routes**. |
+| Support-mixture diversity | Candidate ecological refugia |
+| [![Effective diversity of lineage-support mixtures through time](man/figures/readme_support_diversity.png)](man/figures/readme_support_diversity.png) | [![Candidate refugia along one ancestral path through time](man/figures/readme_candidate_refugia.png)](man/figures/readme_candidate_refugia.png) |
+| Diversity of modelled lineage support; **not total historical species richness**. | Connected candidate areas along one ancestral path; **not confirmed population persistence**. |
 
 ## Install and explore
 
