@@ -1,0 +1,191 @@
+---
+title: "04. Deep-Time Hindcasting From 540 Ma To 0 Ma"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{04. Deep-Time Hindcasting From 540 Ma To 0 Ma}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+# Scientific Question
+
+How can a modern HMSC model be projected across palaeoenvironmental time cubes
+without mixing modern residual structure, present-day composition-derived
+variables, or impossible species histories into ancient predictions?
+M1-M5 outputs are proxy or heuristic scenario products unless each component is
+externally calibrated. Simulated layers are mock layers, and the projections are
+non-causal summaries with explicit limitations and real-data requirements.
+
+# Input Data
+
+The workflow starts from the four HMSC matrices: community matrix `Y`,
+environmental matrix `XData`, trait matrix `TrData`, and a dated phylogeny with
+correlation matrix `C`. Modern `XData` should be extracted from the 0 Ma
+environment layer so modern and ancient variables share names, units and
+scaling.
+
+```{r input-schema}
+deep_inputs <- data.frame(
+  object = c("Y", "XData", "TrData", "phy/C", "env_cube", "landmask_cube",
+             "region_cube", "tip_ranges", "species_origin", "plate_points"),
+  role = c("site x species response", "0 Ma environmental predictors",
+           "species traits", "phylogenetic covariance and origin times",
+           "ancient environmental layers", "geographic existence",
+           "cell-to-region mapping", "current or time-sliced ranges",
+           "species or lineage time mask", "external palaeo-coordinate table")
+)
+knitr::kable(deep_inputs, caption = "Deep-time workflow inputs.")
+```
+
+# Formula
+
+For each species `j`, cell `c` and time `t`, HmscEcoEvo keeps terms separate:
+
+`S_HMSC[j,c,t]` is environmental suitability predicted from HMSC.
+`L_land[c,t]` is land or habitat availability.
+`E_phylo[j,t]` is the origin-time mask, zero when `time_ma > origin_ma[j]`.
+`A_BGB[j,region,t]` is historical accessibility from BioGeoBEARS or imported
+ranges.
+`D_static` and `D_dynamic` are dispersal filters.
+`Q_extrap[c,t]` is optional extrapolation downweighting.
+
+The five projection models are:
+
+```{r m1m5}
+library(HmscEcoEvo)
+knitr::kable(hee_projection_formula(include_q = TRUE),
+             caption = "M1-M5 projection formulas.")
+```
+
+These are scenario products. They are not observed palaeo-ranges.
+
+# Recipe And Leakage
+
+```{r recipe-quick}
+library(HmscEcoEvo)
+env_now <- data.frame(bio1 = c(10, 12, 8), bio12 = c(800, 900, 700))
+recipe <- hee_lock_recipe(env_now, formula = ~ bio1 + bio12)
+hee_apply_recipe(recipe, env_now)
+```
+
+Never rescale each palaeo time slice separately. Apply the 0 Ma recipe to all
+ancient layers. Do not include site-level variables back-calculated from modern
+composition in deep-time XData.
+
+# Time Axis And Task Table
+
+```{r time-axis}
+times_quick <- hee_time_axis(start_ma = 540, end_ma = 0, by = 60)
+hee_assert_full_time_axis(times_quick, quick = TRUE)
+head(times_quick)
+```
+
+Full mode should use `times = seq(540, 0, by = -1)` or every time point in the
+environment cube. Representative times are for figures only; computation should
+iterate over the full axis.
+
+```{r full-task-table, eval=FALSE}
+times <- hee_time_axis_from_env_cube(env_cube)
+hee_assert_full_time_axis(times, quick = FALSE, min_time_slices = 100)
+tasks <- hee_task_table(expand.grid(time_ma = times, tile_id = seq_len(n_tiles)))
+pending <- hee_resume(tasks)
+tiles <- hee_make_tiles(cell_table, tile_size = 5000)
+```
+
+# HMSC Projection
+
+The default palaeo-projection mode should be environmental only. Modern spatial
+random effects are not portable to 540 Ma, 400 Ma, or other deep-time settings.
+
+```{r hmsc-projection, eval=FALSE}
+suit <- hee_project_hmsc_timecube(
+  model = m,
+  env_cube = env_cube,
+  recipe = recipe,
+  times = times,
+  variables = c("bio1", "bio12", "elev"),
+  projection_mode = "environment_only",
+  chunk_size = 5000
+)
+```
+
+# Phylogenetic Time Mask
+
+```{r phylo-mask}
+mask <- hee_phylo_time_mask(
+  times = c(50, 10, 0),
+  species_origin = c(sp1 = 8, sp2 = 40),
+  species = c("sp1", "sp2")
+)
+mask
+```
+
+At 50 Ma, `sp1` has probability zero because its origin is 8 Ma. At 10 Ma it
+is still zero, and at 0 Ma it can exist.
+
+# Extrapolation Risk
+
+```{r extrapolation, eval=FALSE}
+risk <- hee_extrapolation_risk(env_now = env_now, env_cube = env_cube,
+                               method = c("range", "mahalanobis", "pca", "mess"))
+Q <- hee_extrapolation_weight(risk)
+```
+
+`Q_extrap` is a reliability downweighting, not a biological absence process.
+If it is used inside M1-M5, report it as a heuristic sensitivity scenario.
+
+# Combining And Summarising
+
+```{r combine-code, eval=FALSE}
+models <- hee_combine_projection_models(
+  suitability = suit,
+  accessibility = A_BGB,
+  phylo_mask = E_phylo,
+  landmask = landmask,
+  static_filter = D_static,
+  dynamic_filter = D_dynamic,
+  extrapolation_weight = Q,
+  strict = TRUE
+)
+
+richness <- hee_richness(models)
+area <- hee_area_summary(models, value = "probability")
+centroid <- hee_centroid_shift(models)
+turnover <- hee_turnover(models)
+refugia <- hee_refugia(richness)
+cwm <- hee_cwm(comm = probability_matrix, traits = traits)
+pd <- hee_phylo_diversity(comm = probability_matrix, tree = phy)
+uncertainty <- hee_uncertainty_budget(models)
+```
+
+# Figures And Output Tables
+
+Each representative time should have suitability, accessibility, phylo-mask,
+final probability, richness, uncertainty and extrapolation-risk maps. The full
+time axis should have M1-M5 richness through time, occupied area through time,
+centroid shift, M5-M3 differences, with-dispersal versus no-dispersal
+differences and model agreement.
+
+# Full Run
+
+```{r full-run, eval=FALSE}
+source("scripts/case01_simulated_full_540Ma.R")
+run_case01_simulated_full_540Ma(
+  quick = FALSE,
+  times = seq(540, 0, by = -1),
+  chunk_size = 5000,
+  output_dir = "outputs/case01_full_final"
+)
+```
+
+# Common Errors
+
+Do not directly extract 100 Ma environment at modern coordinates in a
+tectonic-track analysis. Do not treat `M5 - M3` as proof of dispersal unless
+dispersal filters were calibrated with independent evidence. Do not allow
+species-level probability before `origin_ma`, and do not allow non-zero
+probability where landmask or geographic existence is zero or missing.

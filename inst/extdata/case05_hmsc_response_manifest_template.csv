@@ -1,0 +1,10 @@
+field,value,scientific_requirement
+model_file,REPLACE_WITH_ABSOLUTE_PATH_TO_REFIT_HMSC_OR_RESPONSE_POSTERIOR,Must contain a model fitted from a declared observation design rather than target-occurrence-grid pseudo-absences.
+observation_model,REPLACE_WITH_surveyed_presence_absence_OR_documented_presence_background,State the likelihood and how detection or background sampling was handled.
+confirmed_absence_or_valid_presence_background,false,Set true only after the observation design has been audited and documented.
+spatially_cross_fitted,false,Set true only if HMSC response estimation excludes the cells used by the dynamic endpoint likelihood.
+response_recipe_file,REPLACE_WITH_ABSOLUTE_PATH_TO_LOCKED_ENVIRONMENT_RECIPE,Historical environmental transforms must match the modern response model exactly.
+training_cells_file,REPLACE_WITH_ABSOLUTE_PATH_TO_HMSC_TRAINING_CELLS,Needed to audit non-overlap with endpoint cells.
+hmsc_mcmc_diagnostics_file,REPLACE_WITH_ABSOLUTE_PATH_TO_MCMC_DIAGNOSTICS,Must document chains convergence and effective sample size.
+hmsc_uses_only_training_cells,true,Must remain true when an endpoint-conditioned run uses held-out modern cells.
+intercept_policy,environmental_response_only_no_prevalence_intercept,Modern prevalence and sampling intercepts must not be copied into deep-time ancestral environmental support.

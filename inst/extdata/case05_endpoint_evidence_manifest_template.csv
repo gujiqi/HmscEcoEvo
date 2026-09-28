@@ -1,0 +1,2 @@
+path,data_role,independent_from_hmsc_training,observation_type,effort_surface_path,description
+REPLACE_WITH_ABSOLUTE_PATH_TO_HELD_OUT_OR_INDEPENDENT_OCCURRENCE_TABLE,spatial_holdout,true,presence_only_conditional_spatial_support,REPLACE_WITH_ABSOLUTE_PATH_TO_EFFORT_OR_EXPOSURE_SURFACE,Use a spatially held-out record set or genuinely independent range/occurrence source. The HMSC training cells must exclude these records and an effort/exposure surface is mandatory for formal presence-only scoring.

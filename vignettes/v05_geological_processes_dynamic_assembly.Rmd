@@ -1,0 +1,181 @@
+---
+title: "05. Geological Processes And Dynamic Assembly"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{05. Geological Processes And Dynamic Assembly}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+# Scientific Question
+
+This vignette documents a legacy, explicitly heuristic assembly scenario. Its
+colonisation and persistence state-transition terms are not seventh and eighth
+biological processes in the current six-process HmscEE framework, and its
+outputs are not the current Case05 lineage-location reconstruction.
+
+Which Earth-history processes could limit assembly through time, and how do we
+test their consequences without pretending that proxy indices are direct
+measurements of colonisation, extinction or speciation rates?
+The examples use mock data to demonstrate proxy and heuristic process layers.
+They are non-causal unless paired with external calibration, and the
+limitations and real-data requirements should be reported explicitly.
+
+# Function Flow
+
+```{r geoprocess-map}
+geo_map <- data.frame(
+  process = c("ecological stage gain/loss", "land age", "area and heterogeneity",
+              "structural connectivity", "functional connectivity",
+              "climatic connectivity", "isolation duration",
+              "source pressure", "rescue effect", "colonisation probability",
+              "extinction probability", "dynamic occupancy",
+              "species pool update", "speciation opportunity",
+              "extinction layers", "regional roles", "dominant limitation",
+              "prediction reliability"),
+  function_name = c("hee_landscape_events()", "hee_land_age()",
+                    "hee_ecological_opportunity()",
+                    "hee_structural_connectivity()",
+                    "hee_functional_connectivity()",
+                    "hee_climatic_connectivity()",
+                    "hee_isolation_history()",
+                    "hee_colonisation_pressure()",
+                    "hee_rescue_effect()",
+                    "hee_colonisation_probability()",
+                    "hee_extinction_probability()",
+                    "hee_dynamic_assembly()",
+                    "hee_update_species_pool()",
+                    "hee_speciation_opportunity(); hee_allopatric_speciation_opportunity(); hee_founder_speciation_opportunity(); hee_insitu_speciation_opportunity(); hee_radiation_opportunity()",
+                    "hee_extinction_layers()",
+                    "hee_cradle_museum_grave()",
+                    "hee_mechanism_attribution(); hee_limitation_map()",
+                    "hee_prediction_reliability()"),
+  output_range = c("event labels", "Ma", "[0,1]", "[0,1]", "[0,1]",
+                   "[0,1]", "Ma/proxy", "[0,1]", "[0,1]", "[0,1]",
+                   "[0,1]", "[0,1]", "presence/pool state", "[0,1]",
+                   "proxy tables", "role labels", "limiting-process label",
+                   "[0,1]")
+)
+knitr::kable(geo_map, caption = "Geological-process and dynamic-assembly functions.")
+```
+
+# Formulas
+
+Structural connectivity usually follows a distance/barrier kernel:
+
+`C_struct = exp(-alpha * distance) * exp(-barrier_weight * barrier) * route_open`.
+
+Functional connectivity modifies structural connectivity with species traits:
+
+`C_func = logistic(k0 + trait * dispersal_trait - distance * distance - barrier * barrier)`.
+
+Climatic connectivity decreases with environmental mismatch and can increase
+with corridor suitability:
+
+`C_clim = exp(-phi * climate_mismatch) * corridor_suitability`.
+
+Colonisation is a time-step probability based on suitability, source pressure,
+accessibility and optional opportunity. Missing optional components are neutral
+only when absence of evidence means "process not included"; explicit zero
+evidence must remain zero.
+
+Extinction increases with environmental unsuitability, land loss, isolation,
+small area, disturbance and vulnerability; rescue effect lowers extinction.
+
+Speciation opportunity is an opportunity index, not a speciation rate:
+
+`opportunity = logistic(intercept + isolation + niche_divergence + area + heterogeneity + persistence + ecological_opportunity)`.
+
+# Quick Code
+
+```{r quick-geoprocess}
+library(HmscEcoEvo)
+
+landscape <- data.frame(
+  region = rep(c("A", "B"), each = 3),
+  time_ma = rep(c(100, 50, 0), 2),
+  geographic_existence = c(0, 1, 1, 1, 1, 0),
+  area_km2 = c(0, 100, 150, 200, 180, 0),
+  bio1 = c(NA, 10, 12, 8, 9, NA),
+  bio12 = c(NA, 800, 900, 600, 700, NA)
+)
+events <- hee_landscape_events(landscape, land_col = "geographic_existence",
+                               area_col = "area_km2")
+age <- hee_land_age(landscape, land_col = "geographic_existence")
+opp <- hee_ecological_opportunity(age, env_cols = c("area_km2"))
+
+pairs <- data.frame(
+  from_region = c("A", "B"),
+  to_region = c("B", "A"),
+  time_ma = 50,
+  paleodistance = c(100, 100),
+  barrier_strength = c(0.2, 0.2),
+  route_open = 1
+)
+struct <- hee_structural_connectivity(pairs)
+traits <- data.frame(species = c("sp1", "sp2"), dispersal = c(0.8, 0.2))
+func <- hee_functional_connectivity(struct, traits = traits,
+                                    dispersal_trait = "dispersal")
+clim <- hee_climatic_connectivity(func, environment_distance_col = NULL,
+                                  corridor_suitability_col = NULL)
+
+previous_state <- data.frame(
+  species = c("sp1", "sp1", "sp2", "sp2"),
+  region = c("A", "B", "A", "B"),
+  time_ma = 100,
+  occupancy_probability = c(1, 0, 0, 1)
+)
+suitability <- data.frame(
+  species = c("sp1", "sp1", "sp2", "sp2"),
+  region = c("A", "B", "A", "B"),
+  time_ma = 50,
+  suitability = c(0.8, 0.7, 0.6, 0.4),
+  geographic_existence = 1
+)
+src <- hee_colonisation_pressure(previous_state, clim)
+rescue <- hee_rescue_effect(previous_state, clim)
+colon <- hee_colonisation_probability(suitability, source_pressure = src)
+state_for_ext <- merge(suitability, rescue[, c("species", "region", "time_ma", "rescue_effect")],
+                       by = c("species", "region", "time_ma"), all.x = TRUE)
+ext <- hee_extinction_probability(state_for_ext, delta_t = 50)
+dyn <- hee_dynamic_assembly(previous_state, suitability,
+                            colonisation = colon, extinction = ext,
+                            cell_col = "region")
+dyn[, c("species", "region", "time_ma", "occupancy_probability")]
+```
+
+# Scenario Suite
+
+`hee_geoprocess_scenario_suite()` creates deterministic audit scenarios:
+normal, extreme, missing optional layers, duplicate keys, single time slice,
+uneven time intervals, shuffled time order and sudden land appearance/loss.
+
+```{r scenario-suite, eval=FALSE}
+suite <- hee_geoprocess_scenario_suite()
+plot_geoprocess_scenario_suite(suite)
+```
+
+# Output Tables And Figure Interpretation
+
+Inspect input tables, intermediate process tables and final dynamic occupancy
+before mapping results. A good process figure should show the component that
+limited probability: no land, no lineage time, low accessibility, weak
+connectivity, high extrapolation risk, or low HMSC suitability.
+
+# Common Errors
+
+Do not let missing accessibility default to 1 if that means "unknown". Do not
+let self-loops create rescue effect. Do not let a single positive opportunity
+value become zero after min-max scaling. Do not allow joins to expand rows
+without a declared species/cell/region/time key.
+
+# Interpretation Boundary
+
+Use "colonisation probability under a heuristic transition model",
+"extinction-risk proxy", "speciation-opportunity index", and "dominant modeled
+limitation". Avoid "true colonisation rate", "true extinction rate", or
+"causal mechanism" unless external calibration and validation are present.

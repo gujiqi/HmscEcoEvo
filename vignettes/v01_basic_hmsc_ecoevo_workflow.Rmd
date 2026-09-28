@@ -1,0 +1,208 @@
+---
+title: "01. Basic HMSC Eco-Evolutionary Workflow"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{01. Basic HMSC Eco-Evolutionary Workflow}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+# Scientific Question
+
+After HMSC has estimated species responses to environmental gradients, what can
+be said about niche structure, trait mediation, phylogenetic signal and
+posterior uncertainty without pretending that HMSC alone estimates every
+evolutionary process? This vignette introduces the `hmsc_ecoevo` S3 object and
+the separation between calculation and plotting.
+
+Boundary language is part of the workflow: mock data are teaching data, proxy
+metrics are descriptive, heuristic rules are scenario rules, non-causal
+summaries should not be overinterpreted, and limitations plus real-data
+requirements must be stated before using results in a manuscript.
+
+# Input Data
+
+An `hmsc_ecoevo` object can be constructed from a fitted HMSC model or from
+explicit matrices. Internally, Beta is `species x environmental_axis`, Gamma is
+`trait x environmental_axis`, and posterior arrays are `draw x entity x axis`.
+
+```{r object-schema}
+schema <- data.frame(
+  slot = c("beta", "beta_draws", "gamma", "gamma_draws", "rho", "omega",
+           "traits", "phylo", "history", "population", "timeseries",
+           "precomputed"),
+  required_shape = c("species x axis", "draw x species x axis",
+                     "trait x axis", "draw x trait x axis",
+                     "vector/table/draws", "species x species",
+                     "species x trait", "ape::phylo", "history tables",
+                     "population long table", "time-series table",
+                     "named list of external results"),
+  interpretation = c("HMSC environmental response estimate",
+                     "posterior uncertainty for Beta",
+                     "trait-to-response association estimate",
+                     "posterior uncertainty for Gamma",
+                     "HMSC phylogenetic signal summary",
+                     "residual association summary",
+                     "measured traits",
+                     "dated or topology-only phylogeny",
+                     "historical predictor diagnostics",
+                     "within-species niche variation",
+                     "dynamic eco-evolutionary data",
+                     "external comparative or validation results")
+)
+knitr::kable(schema, caption = "Main `hmsc_ecoevo` inputs.")
+```
+
+# Function Flow
+
+The package uses a strict pattern: `calc_*()` creates tables; `plot_*()` renders
+those tables. This lets users inspect values before making figures.
+
+```{r function-flow}
+flow <- data.frame(
+  step = c("construct", "calculate", "plot", "report"),
+  function_family = c("hmsc_ecoevo()", "calc_*()", "plot_*()", "hee_render_word_report()"),
+  output = c("S3 object", "named list of tables", "ggplot/patchwork/list", "Word/HTML plus files")
+)
+knitr::kable(flow, caption = "Calculation and plotting are separated.")
+```
+
+# Formula
+
+For posterior quantities, HmscEcoEvo reports summaries over draws:
+
+`mean = average(draws)`, `median = median(draws)`,
+`lwr = quantile(draws, 0.025)`, `upr = quantile(draws, 0.975)`, and
+`support = Pr(parameter > 0)` for signed effects. These are posterior summaries
+from supplied draws; they are not frequentist confidence intervals.
+
+For niche-vector magnitude, the default is
+`||beta_j|| = sqrt(sum_k beta[j,k]^2)` after excluding intercept axes when the
+function can identify them. Direction and PCA are descriptive summaries of the
+Beta matrix.
+
+# Quick Code
+
+This code is intentionally small and deterministic. It does not fit HMSC; it
+shows how post-processing works once Beta/Gamma are available.
+
+```{r quick-object}
+library(HmscEcoEvo)
+
+set.seed(1)
+beta <- matrix(
+  c(0.8, -0.4, 0.2,
+    -0.3, 0.7, 0.1,
+    0.2, 0.4, -0.6,
+    -0.7, -0.1, 0.5),
+  nrow = 4, byrow = TRUE,
+  dimnames = list(paste0("sp", 1:4), c("bio1", "bio12", "elev"))
+)
+beta_draws <- array(
+  rnorm(80 * 4 * 3, rep(as.vector(beta), each = 80), 0.15),
+  dim = c(80, 4, 3),
+  dimnames = list(NULL, rownames(beta), colnames(beta))
+)
+traits <- data.frame(
+  body_size = c(1, 2, 1.5, 3),
+  dispersal = c(0.3, 0.8, 0.5, 0.2),
+  row.names = rownames(beta)
+)
+gamma <- matrix(
+  c(0.3, -0.2, 0.1,
+    0.1, 0.4, -0.3),
+  nrow = 2, byrow = TRUE,
+  dimnames = list(colnames(traits), colnames(beta))
+)
+
+evo <- hmsc_ecoevo(
+  beta = beta,
+  beta_draws = beta_draws,
+  gamma = gamma,
+  traits = traits,
+  metadata = list(example = "basic vignette")
+)
+evo
+```
+
+```{r quick-metrics}
+niche <- calc_niche_metrics(evo)
+trait_med <- calc_trait_mediation_metrics(evo)
+
+head(niche$beta_summary)
+trait_med$signal_decomposition
+```
+
+# Output Tables
+
+The most important early checks are: species names align; Beta axes are not
+accidentally transposed; posterior support is plausible; missing traits are
+explicitly recorded.
+
+```{r quick-output-summary}
+summary_table <- data.frame(
+  result = c("beta_summary", "response_curves", "optimum_breadth",
+             "magnitude", "pca_scores", "signal_decomposition"),
+  check = c("mean/median/lwr/upr/support by species and axis",
+            "curves are conditional on selected axes and link function",
+            "optimum and breadth are descriptive, not fundamental niches",
+            "vector length should not be dominated by intercepts",
+            "PCA describes Beta-space geometry",
+            "trait/history decomposition is descriptive, not causal")
+)
+knitr::kable(summary_table, caption = "Early output checks.")
+```
+
+# Figure Interpretation
+
+Plot functions return printable objects. A full Figure 1 call is:
+
+```{r plot-call, eval=FALSE}
+fig1 <- plot_niche_summary(niche, style = "nature")
+print(fig1)
+```
+
+If a module lacks required data, the calculator returns diagnostics and the plot
+should be interpreted as partial. For example, no phylogeny means phylogenetic
+signal metrics cannot be interpreted.
+
+# Full HMSC Code
+
+Fitting HMSC belongs in the analysis script, not in a lightweight vignette.
+
+```{r full-hmsc-code, eval=FALSE}
+m <- Hmsc::Hmsc(
+  Y = Y,
+  XData = XData,
+  XFormula = XFormula,
+  TrData = TrData,
+  TrFormula = TrFormula,
+  phyloTree = phy,
+  distr = "probit",
+  studyDesign = studyDesign,
+  ranLevels = ranLevels
+)
+
+m <- Hmsc::sampleMcmc(
+  m,
+  samples = 1000,
+  transient = 1000,
+  thin = 10,
+  nChains = 4,
+  nParallel = 4
+)
+
+evo <- hmsc_ecoevo(model = m)
+```
+
+# Interpretation Boundary
+
+Beta, Gamma, Omega and predicted values are model estimates only when they come
+from the fitted HMSC object. Niche breadth, missing-trait risk, local Moran
+indices, convergence scores and validation summaries may be descriptive
+proxies. They should be reported as diagnostics unless backed by an external
+process model or independent validation.

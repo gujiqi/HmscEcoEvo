@@ -1,0 +1,807 @@
+---
+title: "10. Case 03: geological processes from deep time to the present"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{10. Case 03: geological processes from deep time to the present}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7.2,
+  fig.height = 4.8,
+  warning = FALSE,
+  message = FALSE
+)
+suppressPackageStartupMessages(library(HmscEcoEvo))
+```
+
+## Scientific question
+
+Case 03 now has two deliberately separate entry points. The real-data workflow
+is the scientific main case; the simulated workflow is a teaching and software
+validation demo. Both are interpreted under the six current HmscEE biological
+process names:
+
+```{r six-process-catalog}
+knitr::kable(
+  subset(hee_core_process_catalog(), layer == "core_process")[,
+         c("process_slug", "process_name_zh", "process_name_en",
+           "function_prefix", "biological_question",
+           "interpretation_boundary")],
+  caption = "HmscEE six-process API contract and boundary conditions."
+)
+```
+
+The guiding question is:
+
+> Under changing climate, geology, geography and habitat history, how do environmental filtering, dispersal, biotic filtering, evolution, speciation and extinction shape reconstructed lineage histories and their derived spatial summaries?
+
+Land appearance/loss, land age, area, heterogeneity, connectivity, source
+pressure, rescue, colonisation, local extinction, opportunity indices,
+dominant limitation mechanisms and prediction reliability remain important.
+They are treated as drivers, optional legacy state-transition components,
+proxy diagnostics or validation layers, not as extra biological processes.
+
+The real entry point reads observed community and site data, extracts modern
+predictors from the supplied 0 Ma environment, fits `Hmsc::Hmsc()`, propagates
+Beta posterior draws over complete time-specific palaeo grids, and only runs
+M3-M5 when external historical accessibility exists. The demo entry point
+preserves the former generated biological inputs so readers can exercise the
+software without claiming empirical palaeodistributions.
+
+Interpretation boundary:
+
+- `real mode`: no simulated or mock fallback is permitted.
+- `demo mode`: generated inputs and demonstration constraints are explicitly labelled.
+- `estimate`: HMSC Beta/Gamma/posterior diagnostics come from an actual HMSC MCMC fit; their empirical meaning depends on whether `Y` is observed or simulated.
+- `proxy`: cradle/museum/grave, extinction layers, connectivity, and speciation opportunity are diagnostic proxies around the six explicit process names.
+- `heuristic`: colonisation, local extinction, and dynamic occupancy use configurable transition formulas unless independently calibrated.
+- `non-causal`: the workflow does not prove causal geological mechanisms.
+- `real-data requirements`: real use needs external palaeogeographic maps, plate reconstructions, BioGeoBEARS or equivalent accessibility, calibrated time bins, and independent validation data.
+
+Throughout the package, `time_ma` is in Ma and larger values are older.
+
+## Run the real-data workflow
+
+Real mode is the default. Core inputs are `comm`, `sites`, and `env_rds`.
+Missing core inputs produce `missing_required_inputs.csv` and stop. A dated
+tree/origin table enables M2; time-specific regions plus external BioGeoBEARS
+accessibility enable M3-M5. Plate tracks, BSM events, and fossils are never
+invented.
+
+```{r run-case03-real, eval=FALSE}
+system2(
+  file.path(R.home("bin"), "Rscript"),
+  c(
+    "scripts/case03_geoprocess_realdata_past_to_present.R",
+    "--analysis_mode=real",
+    "--quick=false",
+    "--comm=data_raw/comm.csv",
+    "--sites=data_raw/sites.csv",
+    "--traits=data_raw/traits.csv",
+    "--tree=data_raw/tree.tre",
+    "--species_origin=data_raw/species_origin.csv",
+    "--tip_ranges=data_raw/tip_ranges.csv",
+    "--env_rds=data_raw/environment.rds",
+    "--region_cube=data_raw/region_cube.csv",
+    "--bgb_accessibility=data_raw/bgb_accessibility.csv",
+    "--connectivity_paths=data_raw/connectivity_paths.csv",
+    "--plate_points=data_raw/plate_points.csv",
+    "--bsm_events=data_raw/bsm_events.csv",
+    "--fossils=data_raw/fossils.csv",
+    "--output=outputs/case03_geoprocess_realdata_past_to_present"
+  )
+)
+```
+
+In full real mode, `hmsc_samples >= 1000`, `hmsc_transient >= 1000`, and
+`hmsc_chains >= 4` are enforced. These are lower workflow safeguards, not proof
+of convergence; PSRF/Rhat, ESS and traces still determine whether inference is
+usable. Deep-time projection uses environmental fixed effects only and reports
+posterior mean, SD, median and 95% credible limits.
+
+`connectivity_paths.csv` is optional but, when supplied, must contain one unique
+`from_region x to_region x time_ma` row with `least_cost_distance_km`,
+`barrier_strength`, `route_open`, and `corridor_suitability`. Without it, the
+script uses and labels a region-centroid great-circle approximation. BSM events
+are diagnostic by default; only the explicit
+`--apply_bsm_accessibility_adjustment=true` sensitivity scenario changes
+`A_BGB`. Fossil validation requires palaeogeographic rather than modern
+coordinates and reports both age-matching and point-to-grid distance.
+
+If `species_origin.csv` is absent, `--tree_time_unit=Ma` must be supplied and
+the tree must genuinely be time-calibrated in millions of years. The derived
+terminal-parent age is an operational lineage-origin mask, not direct fossil
+evidence for the first appearance of a modern species. In HmscEE 1.0, Case 03
+does not treat `A_BGB`, distance, connectivity, and dynamic dispersal as
+independent probabilities that are all multiplied. BioGeoBEARS/BSM supplies
+the macro-region state `R[lineage, region, time]`, conditional on the
+palaeogeographic/plate scenario `g` that was used to build the BioGeoBEARS
+geography. Palaeoclimate scenarios are written `c|g`; they feed environmental
+predictors `X`, not BioGeoBEARS range-contraction parameter `e`. HmscEE then
+updates conditional cell occupancy `q` only inside regions with `R = 1`. The
+older M1-M5 product family can still be used as a labelled sensitivity
+contrast, but it is not the main HmscEE 1.0 Case 03 model.
+
+## Run the simulated demo
+
+Quick mode is a study-scale teaching simulation, not a minimal toy. It still
+covers 540 Ma to 0 Ma, uses a complete regular demonstration raster, spatially
+stratifies the modern HMSC sites across regions, and keeps enough time slices
+to expose turnover and geological filtering.
+
+```{r run-case03-quick, eval=FALSE}
+system2(
+  file.path(R.home("bin"), "Rscript"),
+  c(
+    "scripts/case03_geoprocess_simulated_demo.R",
+    "--analysis_mode=demo",
+    "--quick=true",
+    "--output=outputs/case03_geoprocess_demo_quick",
+    "--seed=20260813"
+  )
+)
+```
+
+By default this quick run uses 36 species, 240 palaeogrid cells, 100 spatially
+stratified modern sites, 6 regions, and 25 Myr slices (23 ages including 540
+and 0 Ma). Test code deliberately overrides these values to run faster. The
+simulation never searches for a personal local environment path: it is always
+labelled as simulated. Use the real-data command above with `--env_rds=` when
+actual palaeoenvironmental rasters are required.
+
+Full demo mode keeps the same logic but uses 60 species, 480 complete grid
+cells, 180 modern sites, 8 regions, and 10 Myr slices from 540 Ma to 0 Ma. It
+is still a simulation; the real Case 03 workflow, rather than this demo, is
+the correct entry point for every cell and every supplied external age.
+
+```{r run-case03-full, eval=FALSE}
+system2(
+  file.path(R.home("bin"), "Rscript"),
+  c(
+    "scripts/case03_geoprocess_simulated_demo.R",
+    "--analysis_mode=demo",
+    "--quick=false",
+    "--output=outputs/case03_geoprocess_demo_full",
+    "--seed=20260813"
+  )
+)
+```
+
+External BioGeoBEARS/accessibility, plate reconstruction, and event tables can be supplied when available. If a file path is supplied and missing, the script stops; it does not silently invent real-data evidence.
+
+```{r run-case03-with-external-processes, eval=FALSE}
+system2(
+  file.path(R.home("bin"), "Rscript"),
+  c(
+    "scripts/case03_geoprocess_simulated_demo.R",
+    "--analysis_mode=demo",
+    "--quick=false",
+    "--output=outputs/case03_geoprocess_full_external_inputs",
+    "--bgb_accessibility=data_raw/bgb_accessibility.csv",
+    "--plate_points=data_raw/plate_points.csv",
+    "--bsm_events=data_raw/bsm_events.csv",
+    "--seed=20260813"
+  )
+)
+```
+
+The remainder of this vignette reads the quick output if it exists. If not, it prints the command above instead of failing package checks.
+
+```{r locate-output}
+case03_candidates <- unique(c(
+  Sys.getenv("HMSCECOEVO_CASE03_OUTPUT", unset = ""),
+  "C:/Users/Google/Documents/HMSC-HIST/HmscEcoEvo/outputs/case03_geoenv_real_quick_20260814",
+  "../outputs/case03_geoprocess_demo_quick",
+  "outputs/case03_geoprocess_demo_quick"
+))
+case03_candidates <- case03_candidates[nzchar(case03_candidates)]
+out_dir <- case03_candidates[dir.exists(case03_candidates)][1L]
+if (!length(out_dir) || is.na(out_dir)) {
+  out_dir <- normalizePath("outputs/case03_geoprocess_demo_quick",
+                           winslash = "/", mustWork = FALSE)
+} else {
+  out_dir <- normalizePath(out_dir, winslash = "/", mustWork = FALSE)
+}
+has_case03 <- dir.exists(out_dir)
+out_dir
+```
+
+```{r helpers}
+table_path <- function(name) file.path(out_dir, "tables", name)
+figure_path <- function(name) file.path(out_dir, "figures", name)
+show_table <- function(name, n = 8) {
+  path <- table_path(name)
+  if (!file.exists(path)) {
+    return(knitr::kable(data.frame(missing_table = name)))
+  }
+  knitr::kable(utils::head(utils::read.csv(path, stringsAsFactors = FALSE), n))
+}
+show_figure <- function(name) {
+  path <- figure_path(name)
+  if (!file.exists(path)) {
+    return(knitr::kable(data.frame(missing_figure = name)))
+  }
+  knitr::include_graphics(path)
+}
+```
+
+## 0. What goes into Case 03?
+
+Scientific question: before any model is fitted, what information enters the workflow and which parts are external data, simulated teaching inputs, or mock-only process placeholders?
+
+```{r input-inventory}
+show_table("00.2_case03_input_inventory.csv", n = 12)
+```
+
+The table is the first audit point. In a real analysis, the palaeoenvironment can be external, but traits, phylogeny, BioGeoBEARS accessibility, plate tracks and fossil/event data should be replaced with project-specific inputs. Case 03 marks mock-only inputs explicitly.
+
+```{r process-source-classification}
+show_table("00.3_case03_process_source_classification.csv", n = 15)
+```
+
+This table prevents over-interpretation. A process can be palaeoenvironment-derived, external-software-derived, or a proxy/heuristic scenario. Only the first two should be described as data-derived in a manuscript.
+
+```{r internal-helper-coverage}
+show_table("00.4_case03_internal_helper_coverage.csv", n = 20)
+```
+
+The `.hee_*` entries are internal helpers for time sorting, safe joins, probability bounds, cube access and scenario validation. They are intentionally not interpreted as separate ecological processes; their job is to keep the higher-level workflow functions reproducible and safe.
+
+```{r starting-inputs-figure, fig.cap="0 Ma selected grid cells and modern HMSC training sites."}
+show_figure("00.1_case03_workflow_starting_inputs.png")
+```
+
+How to read it: the background is the 0 Ma environmental layer used to build `XData`; the points are the modern sites used to fit HMSC. The past projection starts from these modern HMSC responses, not from observed deep-time communities.
+
+## 1. Ecological stage: land, habitat, area, age and opportunity
+
+Scientific question: where does usable land or habitat exist, when does it appear or disappear, and when does new ecological space become available?
+
+Core functions:
+
+- `hee_land_age()`
+- `hee_landscape_events()`
+- `hee_ecological_opportunity()`
+
+Formula summary:
+
+```text
+geographic_existence = 1 if land/habitat exists, 0 if absent, NA treated conservatively in final projection
+land_age_myr[t] = land_age_myr[t-1] + |time_ma[t-1] - time_ma[t]| for persistent land
+ecological_opportunity = weighted mean(area gain, heterogeneity, novelty, young-land index)
+```
+
+```{r stage-table}
+show_table("01.4_landscape_summary_through_time.csv")
+```
+
+This table shows mean land existence, habitat availability, ecological opportunity, and total land area through time. If the local Phanerozoic RDS exists, these values are derived from the prepared 4-degree palaeoenvironment product; otherwise they are generated by the portable fallback and must be treated as simulated.
+
+```{r environment-role-table}
+show_table("01.5_paleo_environment_role_table.csv", n = 8)
+```
+
+The role table records how each environmental layer is used. Elevation, land area, topographic heterogeneity and climate variables are not just decorative maps: they feed ecological opportunity, connectivity barriers, HMSC suitability and extrapolation checks.
+
+```{r stage-figure, fig.cap="Ecological stage from 540 Ma to the present."}
+show_figure("01.1_ecological_stage_through_time.png")
+```
+
+How to read it: high land area means more available cells; high ecological opportunity means more new or heterogeneous arena in the supplied simulation. Do not call ecological opportunity a true speciation rate.
+
+```{r landmask-figure, fig.cap="Representative landmask states."}
+show_figure("01.2_landmask_representative_times.png")
+```
+
+Dark or absent cells are not allowed to retain final probability in M1-M5. Unknown geography is treated conservatively in `hee_combine()`.
+
+```{r paleo-environment-maps, fig.cap="Palaeoenvironment layers used by the workflow."}
+show_figure("01.4_paleo_environment_maps_representative_times.png")
+```
+
+These maps show the actual environmental gradients used in Case 03. The colour scale is standardized for display, while HMSC projections use the locked 0 Ma scaling recipe.
+
+## 2. Species origin times and phylogenetic mask
+
+Scientific question: which species are allowed to exist at a given geological age?
+
+Core function:
+
+- `hee_phylo_time_mask()`
+
+Formula:
+
+```text
+E_phylo[j,t] = 1 if time_ma[t] <= origin_ma[j], otherwise 0
+```
+
+Because Ma increases into the past, a species with `origin_ma = 40` cannot occur at 180 Ma.
+
+```{r origin-table}
+show_table("02.5_species_origin_times.csv")
+```
+
+```{r phylo-mask-figure, fig.cap="Species-by-time phylogenetic existence mask."}
+show_figure("02.5_phylo_time_mask_heatmap.png")
+```
+
+Interpretation: M2-M5 use this mask. M1 is reported as an environmental upper-bound scenario and should not be interpreted as true species presence before origin.
+
+## 3. HMSC-estimated environmental suitability
+
+Scientific question: how is environmental suitability separated from geological constraints?
+
+Case 03 creates a simulated modern community matrix `Y`, extracts `XData` from the 0 Ma environment, supplies `TrData`, `phy`, `studyDesign`, and `ranLevels`, and then calls `Hmsc::Hmsc()` and `Hmsc::sampleMcmc()`. The fitted HMSC Beta posterior mean is projected to palaeoenvironmental layers after applying the locked 0 Ma recipe.
+
+```{r beta-table}
+show_table("02.9_hmsc_beta_posterior_mean_for_projection.csv")
+```
+
+Formula:
+
+```text
+eta[j,c,t] =
+  intercept[j] +
+  beta_temp[j] * bio1_scaled[c,t] +
+  beta_precip[j] * bio12_scaled[c,t] +
+  beta_elev[j] * elev_scaled[c,t] +
+  beta_habitat[j] * paleo_habitat_scaled[c,t]
+
+S_HMSC[j,c,t] = Phi(eta[j,c,t])
+```
+
+The 0 Ma environment locks the recipe with `hee_lock_recipe()`, and all palaeo layers are transformed with `hee_apply_recipe()`.
+
+```{r suitability-figure, fig.cap="Mean HMSC-estimated environmental suitability through time."}
+show_figure("02.8_hmsc_suitability_through_time.png")
+```
+
+## 4. Connectivity and isolation
+
+Scientific question: do geological routes allow movement among regions, and how long have regions been isolated?
+
+Core functions:
+
+- `hee_structural_connectivity()`
+- `hee_functional_connectivity()`
+- `hee_climatic_connectivity()`
+- `hee_build_connectivity_cube()`
+- `hee_isolation_history()`
+- `hee_network_metrics()`
+
+Formula summary:
+
+```text
+region_environment[t] = summary(lon, lat, land area, land existence, temperature,
+                                precipitation, elevation, habitat)
+paleodistance = distance(region centroid_from, region centroid_to)
+barrier = f(elevation mismatch, climate mismatch, distance, land existence)
+C_struct = route_open * exp(-alpha * paleodistance) * exp(-barrier_weight * barrier)
+C_func   = logistic(k0 + k_trait * dispersal_trait - k_distance * distance - k_barrier * barrier)
+C_clim   = exp(-phi * environmental_distance) or supplied corridor suitability
+C_total  = C_struct * C_func * C_clim
+isolation = 1 - C_total
+```
+
+```{r region-environment-table}
+show_table("01.6_region_environment_summary_from_paleoenv.csv", n = 10)
+```
+
+This table is the bridge between palaeoenvironmental layers and region-level process calculations. In the revised Case 03, topographic barriers, climatic mismatch, habitat mismatch and regional land availability are computed from this table.
+
+```{r connectivity-table}
+show_table("03.5_connectivity_cube_species_region_time.csv")
+```
+
+```{r connectivity-figure, fig.cap="Mean total connectivity through time."}
+show_figure("03.1_connectivity_through_time.png")
+```
+
+Interpretation: these are route permeability proxies. They do not prove realised dispersal routes unless calibrated with independent dispersal, fossil, or phylogeographic evidence.
+
+```{r network-figure, fig.cap="Network fragmentation through time."}
+show_figure("03.2_network_fragmentation_through_time.png")
+```
+
+## 5. Accessibility, extrapolation, and plate-corrected tracks
+
+Scientific question: which areas are historically reachable, how reliable are predictions under novel environments, and why do modern coordinates need plate correction?
+
+Core functions:
+
+- `hee_extrapolation_risk()`
+- `hee_extrapolation_weight()`
+- `hee_import_plate_points()`
+- `hee_reconstruct_points()`
+- `hee_compare_plate_corrected()`
+
+Case 03 can import an external BioGeoBEARS/accessibility table through `--bgb_accessibility=...`. If no such file is supplied, it writes a mock-only demonstration table:
+
+```{r accessibility-table}
+show_table("03.10_historical_accessibility_A_BGB_or_mock.csv")
+```
+
+Check the `accessibility_source` column before interpreting this table. `mock_only_no_external_BioGeoBEARS_table` is valid for software demonstration only. Real analyses should import BioGeoBEARS or equivalent historical accessibility.
+
+```{r extrapolation-figure, fig.cap="Extrapolation risk from the 0 Ma recipe."}
+show_figure("03.3_extrapolation_risk_through_time.png")
+```
+
+`Q_extrap` is used as a reliability flag in this case, not as an automatic ecological process. If the analyst chooses downweighting, it must be reported as a sensitivity scenario.
+
+```{r plate-figure, fig.cap="Plate-corrected palaeopoint tracks from user-supplied coordinates."}
+show_figure("03.4_plate_corrected_tracks.png")
+```
+
+The package does not know where a point was in the past by itself. It requires a user table, `rgplates`, `pygplates`, or other external plate reconstruction.
+
+## 6. Nested HmscEE core and legacy M1-M5 sensitivity models
+
+Scientific question: given a BioGeoBEARS/BSM regional history, where inside
+each occupied region can a lineage establish, persist, and move through the
+dynamic palaeo-Earth stage?
+
+Core functions:
+
+- `hee_paleo_earth_state()`
+- `hee_bsm_region_history()`
+- `hee_trait_mediated_ancestral_response()`
+- `hee_lineage_suitability()`
+- `hee_within_region_movement_kernel()`
+- `hee_nested_region_cell_occupancy()`
+- `hee_richness()`
+- `hee_turnover()`
+- `hee_refugia()`
+
+Core HmscEE 1.0 formulas:
+
+```text
+beta[l,k] = Gamma T[l,k] + u[l,k]
+K[l,u'->u,k] = 1 - exp(-lambda_mov[l,u'->u,k] * delta_t[k])
+A_arr[l,u,k] = 1 - prod(1 - q[l,u',k] K[l,u'->u,k])
+gamma[l,u,k] = A_arr[l,u,k] * logit^-1(a_l + b_S eta[l,u,k])
+phi[l,u,k] = logit^-1(a_l^P + b_P eta[l,u,k])
+q[l,u,k+1] = q[l,u,k] phi[l,u,k] + (1 - q[l,u,k]) gamma[l,u,k]
+p[l,u,k] = sum_g w[g] sum_h w[h|g] sum_c w[c|g] sum_s w[s]
+           R[l,r(u,k),k]^(h,g) q[l,u,k]^(h,g,c,s)
+```
+
+Here `g` is a palaeogeographic/plate scenario, `c|g` is a matched
+palaeoclimate scenario, `h|g` is a BioGeoBEARS/BSM history, and `s` is an HMSC
+/ ancestral trait / ancestral response posterior draw. `u` is the spatial grid
+cell index, so `c` is not reused for cell. Do not average
+palaeoclimate/plate scenarios and BSM histories as an independent Cartesian
+product if BioGeoBEARS used time-stratified geography. BioGeoBEARS ranges
+define where the lineage is regionally present; they do not define ancestral
+traits or environmental response. `hee_trait_mediated_ancestral_response()`
+keeps those objects separate with `beta = Gamma T + u`.
+
+The older M1-M5 product formulas below are retained for compatibility with
+Case 1/Case 2 reports and for explicitly labelled sensitivity contrasts:
+
+```text
+M1_env_only:
+  P = S_HMSC * L_land
+
+M2_env_phylo:
+  P = S_HMSC * E_phylo * L_land
+
+M3_env_phylo_bgb_no_dispersal:
+  P = S_HMSC * E_phylo * A_BGB * L_land
+
+M4_env_phylo_bgb_static_dispersal:
+  P = S_HMSC * E_phylo * A_BGB * D_static * L_land
+
+M5_env_phylo_bgb_dynamic_dispersal:
+  P = S_HMSC * E_phylo * A_BGB * D_dynamic * L_land
+```
+
+In the 1.0 nested core, the geological process layer enters the hard habitat
+state `H`, the palaeoenvironment `X`, and the within-region movement kernel
+`K`. Cross-region expansion, contraction, founder events and vicariance belong
+to BioGeoBEARS/BSM. That division prevents double counting the same
+between-region dispersal chain.
+
+```{r formulas-table}
+show_table("04.1_projection_model_formulas_M1_M5.csv")
+```
+
+```{r richness-figure, fig.cap="M1-M5 richness through time."}
+show_figure("04.1_M1_M5_richness_through_time.png")
+```
+
+How to read it: if M1 is much higher than M5, environment alone is broad and the stronger historical filters matter. If M3 and M5 differ, dynamic dispersal continuity matters beyond accessibility.
+
+```{r area-figure, fig.cap="M1-M5 occupied area through time."}
+show_figure("04.2_M1_M5_area_through_time.png")
+```
+
+Occupied area is based on a probability threshold in the script, not an observed census area.
+
+```{r difference-figure, fig.cap="M5 minus M3 richness difference."}
+show_figure("04.4_M5_minus_M3_richness_difference.png")
+```
+
+Positive values mean dynamic dispersal retained or connected more richness than the no-dispersal baseline. Negative values mean dynamic continuity constrained the projection relative to region-level accessibility.
+
+```{r final-m5-species-maps, fig.cap="Final M5 species probability maps through representative times."}
+show_figure("04.5_final_M5_species_probability_maps.png")
+```
+
+This is the central past-to-present hindcast output for representative species. It is not raw HMSC suitability; it includes lineage-time masks, historical accessibility, dynamic dispersal, land/geography and extrapolation weighting.
+
+```{r final-m5-richness-maps, fig.cap="Final M5 expected richness maps through representative times."}
+show_figure("04.6_final_M5_richness_representative_maps.png")
+```
+
+Expected richness is computed as `sum(probability)` across species for each cell-time. It is not a count census, because the input is occurrence probability.
+
+## 7. Dynamic geological-process diagnostics
+
+Scientific question: what process terms drive the M5 dynamic projection?
+
+Core function:
+
+- `hee_geoprocess_diagnostics()`
+
+This wrapper builds source pressure, rescue, colonisation probability, extinction probability, speciation opportunity, dynamic occupancy, mechanism attribution, species-pool change, source/sink summaries, and reliability.
+
+```{r process-summary-table}
+show_table("05.1.17_geoprocess_process_summary.csv")
+```
+
+```{r process-summary-figure, fig.cap="Geological process summaries."}
+show_figure("05.1_geoprocess_process_summary.png")
+```
+
+Interpretation: these values identify which model components are active. They are not causal estimates.
+
+```{r occupancy-figure, fig.cap="Dynamic occupancy by species."}
+show_figure("05.2_dynamic_occupancy_by_species.png")
+```
+
+Dynamic occupancy uses:
+
+```text
+p_next = G * E * (p_prev * (1 - epsilon) + (1 - p_prev) * gamma)
+```
+
+where `G` is geography/habitat existence, `E` is lineage existence, `epsilon` is local extinction probability, and `gamma` is colonisation probability.
+
+```{r limitation-figure, fig.cap="Dominant limitation mechanism."}
+show_figure("05.3_limitation_mechanism_through_time.png")
+```
+
+Dominant mechanism is a rule-based diagnostic label. It should be written as "model component most limiting in the scenario", not as proven causation.
+
+```{r pool-figure, fig.cap="Species-pool update."}
+show_figure("05.4_species_pool_through_time.png")
+```
+
+Species-pool updates combine simulated speciation, immigration, emigration, and extinction events. In real projects, these event tables must be supplied or estimated externally.
+
+## 8. Extinction, speciation opportunity, and regional role proxies
+
+Core functions:
+
+- `hee_extinction_layers()`
+- `hee_speciation_opportunity()`
+- `hee_allopatric_speciation_opportunity()`
+- `hee_founder_speciation_opportunity()`
+- `hee_insitu_speciation_opportunity()`
+- `hee_radiation_opportunity()`
+- `hee_cradle_museum_grave()`
+
+```{r extinction-table}
+show_table("05.4_lineage_extinction_proxy.csv")
+```
+
+```{r cmg-table}
+show_table("05.5_cradle_museum_grave_source_sink_proxy.csv")
+```
+
+```{r cmg-figure, fig.cap="Cradle/museum/grave/source/sink proxy status."}
+show_figure("05.5_cradle_museum_grave_status.png")
+```
+
+Safe manuscript wording: "In the simulated scenario, region R showed a high museum proxy because predicted persistence was high and turnover low."  
+Unsafe wording: "Region R was proven to be an evolutionary museum."
+
+## 9. Prediction reliability
+
+Core function:
+
+- `hee_prediction_reliability()`
+
+Formula:
+
+```text
+PRI = (1 - extrapolation_risk)^w1 * model_agreement^w2 *
+      phylo_validity^w3 * calibration^w4
+```
+
+```{r reliability-figure, fig.cap="Prediction reliability."}
+show_figure("05.6_prediction_reliability.png")
+```
+
+Reliability is an epistemic diagnostic. It is not a posterior credible interval and not a frequentist confidence interval.
+
+## 10. Stress scenarios and automatic validation
+
+Case 03 also calls:
+
+- `hee_geoprocess_scenario_suite()`
+- `plot_geoprocess_scenario_suite()`
+
+The suite includes normal, extreme, missing optional data, duplicate-key, single-time, uneven-time, shuffled-time, and land appearance/loss cases.
+
+```{r scenario-summary}
+show_table("06.1_scenario_suite_summary.csv")
+```
+
+Duplicate keys are expected to fail with a clear error. They are recorded rather than silently repaired.
+
+```{r scenario-validation}
+show_table("06.2_scenario_suite_validation.csv", n = 12)
+```
+
+```{r scenario-figure, fig.cap="Scenario-suite process heatmap."}
+show_figure("06.7.02_scenario_suite_process_heatmap.png")
+```
+
+## 11. Supplementary gen3sis-style observer layer
+
+Scientific question: can the same case answer the kind of process questions usually asked in spatial eco-evolutionary simulations such as gen3sis?
+
+The official gen3sis examples separate a dynamic landscape, initialization, dispersal, ecology, evolution/speciation, extinction and observer outputs. Case 03 does not run the gen3sis engine. Instead, it maps those concepts onto HmscEcoEvo objects:
+
+- dynamic landscape: `landscape` and `hee_landscape_events()`;
+- initialization: `origin_ma`, `hee_phylo_time_mask()` and the first seedable ancestral region;
+- dispersal kernel: `hee_build_connectivity_cube()`, `hee_static_region_dispersal()` and `hee_dynamic_region_filter()`;
+- ecological filtering: HMSC-estimated `S_HMSC`;
+- carrying capacity: area-habitat-heterogeneity proxy;
+- competition/crowding: expected richness divided by carrying-capacity proxy;
+- evolution/speciation: `hee_speciation_opportunity()` and its allopatric, founder, in-situ and radiation components;
+- extinction: `hee_extinction_probability()` and layered extinction proxies;
+- observers: diversity, range size, adaptation, process-balance and trait trajectories through `time_ma`.
+
+These additions solve gen3sis-like questions while keeping the HmscEcoEvo interpretation boundary: they are supplementary process observers and proxies, not part of the five-engine core, and not proof of realised dispersal, abundance, true speciation rate or causal geological mechanism.
+
+```{r gen3sis-mapping}
+show_table("07.1_gen3sis_style_mapping_to_case03.csv", n = 12)
+```
+
+The mapping table is the quickest way to see which Case03 result corresponds to each gen3sis-style concept.
+
+```{r gen3sis-ancestral}
+show_table("07.2_gen3sis_style_ancestral_initialisation.csv", n = 12)
+```
+
+`first_allowed_time_ma` is controlled by `origin_ma`: because larger Ma is older, a species cannot be initialized before its origin. `n_seedable_cells` counts cells in the ancestral region that are geographically available at the first allowed slice.
+
+```{r gen3sis-capacity}
+show_table("07.3_gen3sis_style_carrying_capacity_cell_time.csv")
+```
+
+Carrying capacity is a bounded proxy:
+
+```text
+K_proxy = 0.45 * area_component +
+          0.35 * habitat_component +
+          0.20 * heterogeneity_component
+```
+
+It is forced to zero when land/geography is absent or unknown. This is not measured abundance.
+
+```{r gen3sis-diversity-figure, fig.cap="Gen3sis-style observer summaries."}
+show_figure("07.1_gen3sis_style_diversity_range_observer.png")
+```
+
+How to read it: the lines show scaled observer outputs, so they compare timing rather than absolute units. A rise in total abundance proxy means M5 probability, carrying capacity and adaptation scores jointly increased.
+
+```{r gen3sis-capacity-figure, fig.cap="Carrying-capacity and crowding proxies."}
+show_figure("07.2_gen3sis_style_carrying_capacity_crowding_maps.png")
+```
+
+High carrying capacity means a cell has high simulated area, habitat availability and heterogeneity. High crowding means expected richness is large relative to that capacity proxy. It should be written as a scenario diagnostic, not as observed density dependence.
+
+```{r gen3sis-adaptation-figure, fig.cap="Probability-weighted adaptation score maps."}
+show_figure("07.3_gen3sis_style_adaptation_maps.png")
+```
+
+The adaptation score is computed from mismatch between scaled palaeoenvironment and species trait optima:
+
+```text
+adaptation_score = exp(-0.5 * environmental_mismatch^2)
+```
+
+It is an ecological-filtering observer, not an evolved trait model.
+
+```{r gen3sis-balance-figure, fig.cap="Colonisation-extinction-speciation process balance."}
+show_figure("07.4_gen3sis_style_process_balance.png")
+```
+
+This panel asks whether the supplementary observer layer is dominated by source pressure, rescue, colonisation, local-extinction risk or speciation-opportunity proxies at different times.
+The signed balance is:
+
+```text
+net_assembly_balance =
+  colonisation_probability + speciation_opportunity - extinction_probability
+```
+
+It is constrained to [-1, 1]. Negative values mean extinction-risk dominance in this heuristic observer. `positive_assembly_opportunity_proxy = max(net_assembly_balance, 0)` is kept separately for positive-opportunity summaries, so extinction-dominated periods are not silently hidden.
+
+```{r gen3sis-trait-figure, fig.cap="Trait observer through time."}
+show_figure("07.5_gen3sis_style_trait_observer_through_time.png")
+```
+
+Trait observer values are weighted by:
+
+```text
+abundance_proxy = P_M5 * K_proxy * adaptation_score
+```
+
+This approximates "which simulated trait states dominate predicted occupied arena", not true trait evolution.
+
+```{r gen3sis-population-state}
+show_table("07.11_gen3sis_style_population_state_proxy.csv")
+```
+
+The population-state table keeps every component needed for audit: `probability`, `suitability`, `accessibility`, `phylo_existence`, `D_dynamic`, `Q_extrap`, `carrying_capacity_proxy`, `adaptation_score` and `abundance_proxy`.
+
+## 12. Final validation checks
+
+```{r validation-checks}
+show_table("geoprocess_validation_checks.csv", n = 20)
+```
+
+These checks verify:
+
+- M1-M5 probabilities are in `[0,1]`.
+- landmask/geographic absence or `NA` forces final probability to zero.
+- M2-M5 species probabilities are zero before `origin_ma`.
+- rescue excludes self-loops by default.
+- explicit `D_static = 0` forces probability to zero.
+- missing speciation evidence does not become positive opportunity.
+- richness equals the sum of species probabilities.
+
+## 13. Output inventory
+
+```{r run-summary}
+show_table("case03_run_summary.csv")
+```
+
+```{r output-inventory}
+show_table("output_file_inventory.csv", n = 15)
+```
+
+The Word report is written to:
+
+```{r report-path}
+report_path <- file.path(out_dir, "reports", "case03_geoprocess_past_to_present_workflow.docx")
+data.frame(report = report_path, exists = file.exists(report_path)) |>
+  knitr::kable()
+```
+
+## 14. What can be written in a paper?
+
+Reasonable statements:
+
+- "We organised the framework around six biological processes: environmental filtering, dispersal, biotic filtering, evolution, speciation and extinction. This simulated Case03 workflow evaluates only the components for which its inputs or explicit scenarios are available."
+- "When a BioGeoBEARS/BSM history is supplied, it constrains macro-regional movement and node inheritance; the optional within-region state-transition module is a scenario calculation, not an independently fitted ancient occupancy model."
+- "Geological-process terms were treated as transparent proxy or heuristic scenario indices."
+
+Statements to avoid:
+
+- "The package estimated true ancient species distributions."
+- "The speciation opportunity index is a true speciation rate."
+- "The limitation map proves geological causation."
+- "Mock accessibility is equivalent to BioGeoBEARS evidence."
+- "BioGeoBEARS, fossils, phyloregions or extrapolation risk are extra biological processes."
+
+For real data, replace the simulated objects with palaeogeographic layers, a fitted HMSC model or posterior predictions, BioGeoBEARS accessibility, externally reconstructed plate coordinates, fossils or pseudo-hindcast validation data, and calibrated coefficients.

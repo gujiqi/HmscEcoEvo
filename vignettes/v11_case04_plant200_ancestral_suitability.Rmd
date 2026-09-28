@@ -1,0 +1,136 @@
+---
+title: "11. Case 04 Plant200 ancestor environmental response and suitability"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{11. Case 04 Plant200 ancestor environmental response and suitability}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7.2, fig.height = 4.8, warning = FALSE, message = FALSE)
+```
+
+## Scientific question
+
+Case 04 reconstructs ancestral environmental response functions, not modern prediction maps averaged backwards in time.
+
+\[
+\text{HMSC Beta posterior at tips} \rightarrow \text{tree-conditioned ancestral Beta} \rightarrow \eta_{\ell,c,t}=B(X_{c,t})^\top\beta_{\ell,t}.
+\]
+
+`time_ma` is in Ma and larger values are older. The sampled Plant200 tree is about 325.05 Ma deep, so 540--325 Ma is outside the sampled-lineage time domain, not a period of zero diversity.
+
+## Inputs and current result status
+
+```{r locate-case04}
+case04_candidates <- c(Sys.getenv("HMSCECOEVO_CASE04_OUTPUT", unset = ""), "C:/Users/Google/Documents/HMSC-HIST/HmscEcoEvo/outputs/case04_plant200_fullgrid40_all66_one_real_draw_20260919")
+case04_output <- case04_candidates[dir.exists(case04_candidates)][1L]
+case04_available <- length(case04_output) == 1L && !is.na(case04_output)
+if (case04_available) {
+  inventory <- utils::read.csv(file.path(case04_output, "01_input_audit", "case04_final_input_inventory.csv"))
+  knitr::kable(utils::head(inventory, 12), caption = "Case04 input inventory from the available run.")
+} else cat("No Case04 output found. Set HMSCECOEVO_CASE04_OUTPUT to render local results.\n")
+```
+
+The available Case04 output is a one-response-draw development run. It checks the full grid, time axis, tree alignment and ancestral-response computation; it is not a final uncertainty-propagated palaeodistribution or diversity result.
+
+## Result 0 Input, time-domain and posterior audit
+
+```{r case04-time-domain, fig.cap="Case04 biological time domain. Green time slices are inside the sampled Plant200 tree; grey slices are intentionally outside the lineage domain and must be reported as NA rather than zero diversity."}
+if (case04_available) {
+  domain <- utils::read.csv(file.path(case04_output, "01_input_audit", "case04_time_domain_540_0Ma.csv"))
+  inside <- grepl("^inside", domain$biological_domain)
+  graphics::plot(domain$time_ma, as.integer(inside), pch = 16,
+                 col = ifelse(inside, "#2D7F5E", "grey70"), ylim = c(-0.1, 1.1),
+                 xlim = rev(range(domain$time_ma)), xlab = "time_ma (Ma; older to the left)",
+                 ylab = "Within sampled-lineage domain")
+  graphics::axis(2, at = 0:1, labels = c("outside: NA", "inside"), las = 1)
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+```{r case04-modern-coverage, fig.cap="Modern GBIF record coverage and family-level fossil age support for the selected Plant200 taxa."}
+if (case04_available) {
+  taxa <- utils::read.csv(file.path(case04_output, "01_input_audit", "selected_species_metadata.csv"))
+  x <- log10(pmax(1, taxa$gbif_coordinate_occurrence_count))
+  y <- taxa$pbdb_family_fossil_max_age_ma
+  graphics::plot(x, y, pch = 16, col = "#2F6DB588", xlab = "log10 modern GBIF coordinate records", ylab = "Maximum matched family fossil age (Ma)")
+  graphics::abline(h = 325.05, lty = 2, col = "#B23A3A")
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+The point cloud documents modern sampling support and family-level fossil context. It does not make the family fossil a species-level occurrence, and it does not extend the sampled tree beyond its root age.
+
+```{r case04-tip-beta-heatmap, fig.cap="One actual HMSC tip-response posterior draw supplied to the Case04 ancestor-response reconstruction."}
+if (case04_available) {
+  beta_tip <- utils::read.csv(file.path(case04_output, "01_input_audit", "case04_hmsc_beta_posterior_25draws.csv"))
+  metadata <- c("lineage", "response_draw", "chain", "iteration", "response_weight", "intercept", "hmsc_intercept_original")
+  axes <- setdiff(names(beta_tip), metadata)
+  beta_tip <- beta_tip[beta_tip$response_draw == beta_tip$response_draw[1L], , drop = FALSE]
+  beta_tip <- beta_tip[seq_len(min(35L, nrow(beta_tip))), c("lineage", axes), drop = FALSE]
+  mat <- as.matrix(beta_tip[, axes, drop = FALSE]); rownames(mat) <- beta_tip$lineage
+  graphics::image(seq_len(ncol(mat)), seq_len(nrow(mat)), t(mat[nrow(mat):1, , drop = FALSE]),
+                  col = grDevices::colorRampPalette(c("#2166AC", "white", "#B2182B"))(101),
+                  xlab = "Environmental response coefficient", ylab = "Plant200 tip (first 35)")
+  graphics::axis(1, at = seq_len(ncol(mat)), labels = axes, las = 2, cex.axis = .65)
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+This is a posterior draw of response coefficients, not a map and not a final distribution. The ancestor step conditions these coefficients on the dated tree before combining them with each historical environment slice.
+
+## Actual code
+
+```{r case04-full-code, eval=FALSE}
+system2(file.path(R.home("bin"), "Rscript"), c("scripts/case04_plant200_ancestral_suitability_no_bgb.R", "--n_response_draws=25", "--output=outputs/case04_plant200_ancestral_suitability"))
+```
+
+The script locks the 0 Ma HMSC transformation recipe and applies it to every historical environment slice. `eta_env` is an environmental-response diagnostic, not an occurrence probability: dispersal, establishment, persistence and observation are not identified by this step.
+
+## Result 1 Active lineage history
+
+```{r case04-active-lineages, fig.cap="Active sampled-surviving lineages through time in the available Case04 run."}
+if (case04_available) {
+  active <- utils::read.csv(file.path(case04_output, "03_lineage_time_tree", "active_lineage_counts.csv"))
+  graphics::plot(active$time_ma, active$n_active_lineages, type = "l", lwd = 2, xlim = rev(range(active$time_ma)), xlab = "time_ma (Ma; older to the left)", ylab = "Active sampled-surviving lineages")
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+The curve counts branches ancestral to the selected extant plants. Decline into deep time is expected coalescence of sampled tips, not evidence of a global plant extinction trajectory.
+
+## Result 2 Ancestral response trajectories
+
+```{r case04-beta-trajectories, fig.cap="Illustrative tree-reconstructed ancestral response trajectories."}
+if (case04_available) {
+  beta <- utils::read.csv(file.path(case04_output, "04_evolution", "ancestral_beta_response_all_projected_times.csv"))
+  excluded <- c("lineage", "lineage_type", "node", "parent_node", "branch_start_ma", "branch_end_ma", "branch_position", "time_ma", "response_draw", "intercept", "response_weight", "response_source")
+  axis_name <- setdiff(names(beta), excluded)[1L]
+  chosen <- head(unique(beta$lineage), 3L)
+  subset_beta <- beta[beta$lineage %in% chosen, ]
+  graphics::plot(NA, xlim = rev(range(subset_beta$time_ma)), ylim = range(subset_beta[[axis_name]], finite = TRUE), xlab = "time_ma (Ma; older to the left)", ylab = axis_name)
+  for (i in seq_along(chosen)) { x <- subset_beta[subset_beta$lineage == chosen[i], ]; graphics::lines(x$time_ma, x[[axis_name]], col = i, lwd = 1.5) }
+  graphics::legend("topright", legend = chosen, col = seq_along(chosen), lty = 1, cex = .7)
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+These trajectories are conditional model estimates. They are not directly observed ancestral climate preferences, causal evidence, final past distributions, or historical species richness.
+
+## Result 3 Development-state diagnostic
+
+```{r case04-development-state, fig.cap="Development-state diagnostic from the available single-draw Case04 run: environmental linear predictor versus log10 colonisation hazard for sampled lineage-cell intervals."}
+if (case04_available) {
+  state_path <- file.path(case04_output, "16_state_space_inference", "attribution_interval_state.csv")
+  state <- utils::read.csv(state_path)
+  state <- state[seq_len(min(5000L, nrow(state))), , drop = FALSE]
+  graphics::plot(state$eta_env, log10(pmax(state$lambda_C, .Machine$double.xmin)),
+                 pch = 16, cex = .3, col = "#6B4FA344", xlab = "eta_env", ylab = "log10(lambda_C)")
+} else { plot.new(); text(.5, .5, "Case04 output not available") }
+```
+
+This diagnostic explains why Case04 must not yet be presented as a final occupancy atlas: it is a single-draw development checkpoint with scenario-scale hazards, not an uncertainty-propagated and externally calibrated palaeo-occupancy result. No final map is silently substituted for this missing stage.
+
+## Boundary and next step
+
+Case04 supplies the `Beta -> ancestral Beta -> palaeoenvironment` component for later geographic models. A final result requires multiple HMSC and trait draws plus separately calibrated movement or occupancy processes.

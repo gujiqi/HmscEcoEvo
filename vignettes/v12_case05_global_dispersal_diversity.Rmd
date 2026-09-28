@@ -1,0 +1,188 @@
+---
+title: "12. Case 05 Plant200 global dispersal and lineage support diversity"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{12. Case 05 Plant200 global dispersal and lineage support diversity}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7.2, fig.height = 4.8, warning = FALSE, message = FALSE)
+```
+
+## Scientific question
+
+Case 05 estimates a tree-conditioned geographic location field for 200 Plant200 lineages from 325 Ma to 0 Ma on a global 4-degree grid.
+
+\[
+v_{t+\Delta t}=A^{\mathrm{plate}}_{t\to t+\Delta t}D^{\mathrm{sphere}}_{t\to t+\Delta t}v_t.
+\]
+
+It uses PALEOMAP stable carrier tracks, an Arias-style sparse spherical diffusion transition and modern occurrence densities as a terminal condition. `time_ma` is in Ma and larger values are older.
+
+## Scientific contract
+
+```{r locate-case05}
+case05_candidates <- c(Sys.getenv("HMSCECOEVO_CASE05_OUTPUT", unset = ""), "C:/Users/Google/Documents/HMSC-HIST/outputs/HmscEcoEvo/case05_v7_arias_4deg_supportdiversity_all200_terminalcondition_20260923")
+case05_output <- case05_candidates[dir.exists(case05_candidates)][1L]
+case05_available <- length(case05_output) == 1L && !is.na(case05_output)
+if (case05_available) {
+  contract <- utils::read.csv(file.path(case05_output, "00_contract", "case05_v7_scientific_contract.csv"))
+  knitr::kable(contract, caption = "Case05 scientific contract: active and deliberately inactive components.")
+} else cat("No Case05 output found. Set HMSCECOEVO_CASE05_OUTPUT to render local results.\n")
+```
+
+Colonisation, persistence, local extinction and final palaeo-occupancy are deliberately not run because the available data do not independently calibrate their demographic parameters. The output is not historical species richness, phylogenetic diversity, functional diversity or ecological alpha diversity.
+
+## Actual code
+
+```{r case05-full-code, eval=FALSE}
+system2(file.path(R.home("bin"), "Rscript"), c("scripts/case05_v7_arias_global_sphere_4deg.R", "--n_tips=200", "--n_response_draws=5", "--output=outputs/HmscEcoEvo/case05_v7_arias_4deg_supportdiversity_all200"))
+```
+
+The full run uses 4,050 global states, 66 displayed time slices and five HMSC response draws. It writes a PNG and a GIS-readable GeoTIFF for each map. The full command remains `eval = FALSE` to protect R CMD check.
+
+## Quality gates and map inventory
+
+```{r case05-quality}
+if (case05_available) {
+  quality <- utils::read.csv(file.path(case05_output, "06_quality", "case05_v7_quality_gates.csv"))
+  index <- utils::read.csv(file.path(case05_output, "05_shared_scale_maps", "case05_v7_map_index.csv"))
+  knitr::kable(quality, caption = "Final Case05 quality gates.")
+  knitr::kable(stats::aggregate(png ~ metric, index, length), caption = "Final PNG map count by metric; GeoTIFF count matches this table.")
+} else index <- NULL
+```
+
+```{r case05-map-helper, include=FALSE}
+show_case05_map <- function(metric, time_ma) {
+  if (is.null(index)) return(invisible(NULL))
+  row <- index[index$metric == metric & index$time_ma == time_ma, , drop = FALSE]
+  if (!nrow(row) || !file.exists(row$png[1L])) cat("Missing map: ", metric, " at ", time_ma, " Ma\n", sep = "") else knitr::include_graphics(row$png[1L])
+}
+show_case05_series <- function(metric, times) {
+  if (is.null(index)) return(invisible(NULL))
+  paths <- vapply(times, function(time_ma) {
+    row <- index[index$metric == metric & index$time_ma == time_ma, , drop = FALSE]
+    if (!nrow(row)) return(NA_character_)
+    row$png[1L]
+  }, character(1))
+  paths <- paths[!is.na(paths) & file.exists(paths)]
+  if (!length(paths)) cat("Missing map series: ", metric, "\n", sep = "") else knitr::include_graphics(paths)
+}
+```
+
+## Result 1 Modern terminal condition
+
+```{r case05-present-location, fig.cap="Tree-conditioned lineage location density at 0 Ma. The terminal state is constrained by modern Plant200 occurrence grids."}
+show_case05_map("posterior_lineage_location_density", 0)
+```
+
+At 0 Ma this map should resemble modern occurrence support, not the HMSC environment-only map. It is a terminally conditioned geographic field, not a survey richness map.
+
+## Result 2 Complete 0 Ma map set
+
+```{r case05-map-meanings}
+map_meanings <- data.frame(
+  metric = c(
+    "posterior_lineage_location_density",
+    "posterior_lineage_location_density_log10",
+    "posterior_weighted_ancestral_HMSC_linear_predictor",
+    "Arias_destination_landscape_weight",
+    "terminal_calibrated_lineage_support_intensity",
+    "support_mixture_shannon",
+    "support_mixture_effective_lineages"
+  ),
+  interpretation = c(
+    "Terminally conditioned geographic mass across Plant200 lineages.",
+    "The same mass on a log10 scale, which exposes low-density tails.",
+    "Location-mass-weighted ancestral HMSC environmental linear predictor.",
+    "Arias-style destination landscape weight used by the spherical dispersal transition.",
+    "Sum of lineage support after species-specific terminal calibration.",
+    "Shannon diversity of the normalized lineage-support mixture.",
+    "exp(Shannon): effective number of lineage-support fields."
+  ),
+  scientific_boundary = c(
+    "Not occupancy or occurrence probability.",
+    "Not an independent biological process.",
+    "Not a posterior occurrence probability or a causal environmental effect.",
+    "A transition-model input, not habitat suitability.",
+    "Not sampled species richness.",
+    "Not community Shannon diversity from a survey.",
+    "Not historical species richness or phylogenetic diversity."
+  )
+)
+knitr::kable(map_meanings, caption = "All formal Case05 map metrics and their interpretation boundaries.")
+```
+
+Each figure below comes from the formal 0 Ma result, and all maps of a given
+metric use that metric's fixed scale across all 66 time slices.
+
+```{r case05-0ma-log-density, fig.cap="0 Ma log10 terminally conditioned lineage-location density."}
+show_case05_map("posterior_lineage_location_density_log10", 0)
+```
+
+```{r case05-0ma-hmsc-predictor, fig.cap="0 Ma lineage-location-weighted ancestral HMSC linear predictor."}
+show_case05_map("posterior_weighted_ancestral_HMSC_linear_predictor", 0)
+```
+
+```{r case05-0ma-destination-weight, fig.cap="0 Ma Arias-style destination landscape weight used in the dispersal transition."}
+show_case05_map("Arias_destination_landscape_weight", 0)
+```
+
+```{r case05-0ma-support-intensity, fig.cap="0 Ma terminal-calibrated lineage-support intensity."}
+show_case05_map("terminal_calibrated_lineage_support_intensity", 0)
+```
+
+```{r case05-0ma-shannon, fig.cap="0 Ma Shannon diversity of the terminal-calibrated lineage-support mixture."}
+show_case05_map("support_mixture_shannon", 0)
+```
+
+```{r case05-0ma-effective, fig.cap="0 Ma effective number of terminal-calibrated lineage-support fields."}
+show_case05_map("support_mixture_effective_lineages", 0)
+```
+
+## Result 3 Dispersal-conditioned lineage support diversity
+
+The support transform is \(a_{lc}=\min(1,\kappa_l\pi_{lc})\), where \(\kappa_l\) makes the 0 Ma support area match 99.5% of the observed grid support for lineage \(l\). We then calculate \(I_c=\sum_l a_{lc}\), mixture Shannon diversity, and \(\exp(H_c)\).
+
+```{r case05-present-support, fig.cap="Terminal-calibrated lineage-support intensity at 0 Ma."}
+show_case05_map("terminal_calibrated_lineage_support_intensity", 0)
+```
+
+High values indicate overlap of more terminal-calibrated lineage-support fields. They do not mean that the corresponding number of ancient species was observed there.
+
+## Result 4 Deep-time comparison
+
+```{r case05-200ma-location, fig.cap="Log10 tree-conditioned location density at 200 Ma."}
+show_case05_map("posterior_lineage_location_density_log10", 200)
+```
+
+```{r case05-200ma-effective, fig.cap="Effective number of lineage-support fields at 200 Ma."}
+show_case05_map("support_mixture_effective_lineages", 200)
+```
+
+At 200 Ma fewer sampled-surviving ancestral branches are active. Low effective support can therefore arise from lineage coalescence as well as geography; it must not be interpreted as total global plant loss.
+
+## Result 5 Representative temporal atlas
+
+```{r case05-support-time-atlas, fig.cap="Terminal-calibrated lineage-support intensity at 325, 200, 65 and 0 Ma. Each panel uses the same fixed metric-specific colour scale."}
+show_case05_series("terminal_calibrated_lineage_support_intensity", c(325, 200, 65, 0))
+```
+
+```{r case05-effective-time-atlas, fig.cap="Effective number of lineage-support fields at 325, 200, 65 and 0 Ma. Each panel uses the same fixed metric-specific colour scale."}
+show_case05_series("support_mixture_effective_lineages", c(325, 200, 65, 0))
+```
+
+Read these panels from the oldest world (325 Ma) to the modern terminal
+condition (0 Ma). Changes jointly reflect the time-sliced sampled tree,
+plate-carriage tracks and the selected spherical-diffusion model. They do not
+measure a historical census of all plants or a fitted colonisation/extinction
+process.
+
+## How to report these results
+
+Appropriate wording is: *Under the selected plate-carriage and spherical diffusion model, terminally conditioned lineage-support fields show spatial variation in overlap and evenness through time.* Do not say that this case reconstructs real historical richness, colonisation rate, local extinction or final palaeo-occupancy. Those claims require a separately calibrated dynamic occupancy model with independent endpoint and fossil evidence.

@@ -1,0 +1,7 @@
+species,trait_conservatism,trait_transition_count,trait_stasis_time,trait_shift_magnitude,dispersal_trait
+sp1,0.82,1,65,0.20,0.75
+sp2,0.45,3,22,0.75,0.40
+sp3,0.61,2,40,0.45,0.55
+sp4,0.88,1,70,0.18,0.30
+sp5,0.50,2,30,0.60,0.65
+sp6,0.57,3,35,0.50,0.50

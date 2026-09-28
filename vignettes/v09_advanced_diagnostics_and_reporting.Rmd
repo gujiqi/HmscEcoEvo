@@ -1,0 +1,706 @@
+---
+title: "09. Advanced Diagnostics, Formula Catalog, and Reporting: Step-by-Step Record"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{09. Advanced Diagnostics and Reporting}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 8,
+  fig.height = 5,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# 这篇 vignette 的定位
+
+这篇把高级公式、外部预计算接口、地学过程公式和 Word 报告重建集中写清楚。
+它对应脚本：
+
+```text
+scripts/rebuild_case01_complete_report.R
+```
+
+但它不复制脚本，而是逐步说明：哪些结果能由 HmscEcoEvo 直接计算，哪些必须由外部
+comparative method、BioGeoBEARS、plate reconstruction 或 simulation workflow 预先提供。
+
+**总原则。**
+
+- HmscEcoEvo 可以汇总和可视化 HMSC 后验、历史可达性、地学过程 proxy 和深时投影情景。
+- HmscEcoEvo 不替代 Hmsc、BioGeoBEARS、bayou、SURFACE、OU/BM/EB comparative packages
+  或 plate-reconstruction 软件。
+- `time_ma` 的数值越大越古老。
+- `origin_ma` 之前 species probability 必须为 0。
+- mock、proxy、heuristic、non-causal 必须在论文和报告里明确标记。
+
+```{r load-package}
+find_pkg_root <- function(start = getwd()) {
+  current <- normalizePath(start, winslash = "/", mustWork = FALSE)
+  for (ii in seq_len(8)) {
+    if (file.exists(file.path(current, "DESCRIPTION")) &&
+        dir.exists(file.path(current, "R"))) {
+      return(current)
+    }
+    parent <- dirname(current)
+    if (identical(parent, current)) break
+    current <- parent
+  }
+  normalizePath(start, winslash = "/", mustWork = FALSE)
+}
+
+pkg_root <- find_pkg_root()
+
+project_path <- function(...) {
+  candidates <- c(file.path(pkg_root, ...), file.path(...), file.path("..", ...))
+  exists <- file.exists(candidates) | dir.exists(candidates)
+  if (any(exists)) {
+    return(normalizePath(candidates[which(exists)[1]], winslash = "/", mustWork = FALSE))
+  }
+  normalizePath(candidates[1], winslash = "/", mustWork = FALSE)
+}
+
+if (requireNamespace("pkgload", quietly = TRUE) && file.exists(file.path(pkg_root, "DESCRIPTION"))) {
+  pkgload::load_all(pkg_root, quiet = TRUE)
+} else {
+  r_files <- list.files(file.path(pkg_root, "R"), pattern = "\\.R$", full.names = TRUE)
+  if (length(r_files) > 0L) {
+    for (ff in sort(r_files)) sys.source(ff, envir = .GlobalEnv)
+  } else if (requireNamespace("HmscEcoEvo", quietly = TRUE)) {
+    library(HmscEcoEvo)
+  } else {
+    stop("Cannot load HmscEcoEvo: install the package or render from the package root.", call. = FALSE)
+  }
+}
+
+case01_output_root <- project_path("outputs", "case01_full_final_paper_audit_20260812_run2")
+case01_tables_dir <- file.path(case01_output_root, "tables")
+case01_figures_dir <- file.path(case01_output_root, "figures")
+case01_rds_dir <- file.path(case01_output_root, "rds")
+case01_reports_dir <- file.path(case01_output_root, "reports")
+
+knitr::kable(
+  data.frame(
+    case01_output_root = case01_output_root,
+    exists = dir.exists(case01_output_root),
+    rebuild_script = project_path("scripts", "rebuild_case01_complete_report.R")
+  ),
+  caption = "Advanced/reporting vignette runtime context"
+)
+```
+
+# 高级步骤总表
+
+```{r formula-step-table}
+formula_steps <- data.frame(
+  step_id = sprintf("%02d", 1:24),
+  topic = c(
+    "证据等级分类",
+    "Beta posterior summary",
+    "Gamma/Rho/Omega posterior summary",
+    "posterior support",
+    "niche magnitude, direction and cosine similarity",
+    "niche optimum and breadth",
+    "Beta PCA",
+    "global phylogenetic signal",
+    "local phylogenetic signal and CCI",
+    "branch shift and number of shifts",
+    "rate shift, BM/OU/EB, DTT and MDI",
+    "adaptive regime, convergence and peak reuse",
+    "trait mediation and residual rho",
+    "Gamma evolution and turnover",
+    "population-level eco-evolution",
+    "M1-M5 projection formulas",
+    "structural/functional/climatic connectivity",
+    "source pressure and rescue effect",
+    "colonisation and extinction probability",
+    "dynamic occupancy",
+    "speciation opportunity",
+    "prediction reliability",
+    "validation diagnostics",
+    "Word report rebuild and reporting language"
+  ),
+  formula = c(
+    "estimate/proxy/heuristic/mock/external are separate evidence classes",
+    "posterior mean, median, lwr, upr over draws for Beta[j,k]",
+    "same posterior summary for Gamma[a,k], Rho, Omega[j,j']",
+    "support = Pr(parameter > 0)",
+    "|beta_j| = sqrt(sum_k w_k beta_jk^2); direction = beta_j / |beta_j|; cosine = d_i dot d_j",
+    "eta = b0 + b1 x + b2 x^2; optimum = -b1/(2 b2); breadth = sqrt(-1/(2 b2)) for concave b2 < 0",
+    "PCA on species x beta-axis matrix after intercept filtering",
+    "HMSC rho from HMSC; Pagel lambda/K/Cmean/Moran I from external phylogenetic methods or precomputed tables",
+    "local Moran/LIPA, node-level signal, CCI are local/descriptive unless supplied by formal tests",
+    "count P_shift >= threshold when branch_shifts contains P_shift; otherwise descriptive beta contrast outlier",
+    "rate shift, BM/OU/EB, DTT, MDI require external comparative model outputs",
+    "adaptive regimes, convergence, peak reuse require precomputed bayou/SURFACE or equivalent outputs",
+    "R2 decomposition; TMNS/HMNS/THMNS/HPNS are descriptive mediation indices",
+    "Gamma clade/regime tables, sign flip, variance and turnover are trait-function diagnostics",
+    "population beta, LA/PL, GxE, reaction norms and feedback paths require population/time-series inputs",
+    "M1=S*L; M2=S*E*L; M3=S*E*A*L; M4=S*E*A*D_static*L; M5=S*E*A*D_dynamic*L",
+    "C_struct = route * exp(-alpha distance) * exp(-barrier_weight barrier); functional/climatic add trait and climate permeability",
+    "source/rescue = weighted incoming occupied sources; rescue excludes self-loop by default",
+    "gamma = 1-exp(-lambda_col dt); epsilon = 1-exp(-lambda_ext dt)",
+    "p_next = G * E * (p_prev*(1-epsilon) + (1-p_prev)*gamma)",
+    "opportunity indices combine isolation, fragmentation, source pressure, heterogeneity, persistence and young land; not true rates",
+    "PRI = (1-risk)^w1 * agreement^w2 * phylo^w3 * calibration^w4",
+    "CV, PPC, ESS, Rhat, simulation recovery, tree/prior sensitivity",
+    "report inserts ordered figures/tables and writes scientific boundaries"
+  ),
+  evidence_class = c(
+    "definition",
+    "HMSC posterior estimate",
+    "HMSC posterior estimate",
+    "HMSC posterior estimate",
+    "derived descriptive metric",
+    "derived descriptive metric; needs quadratic term",
+    "derived descriptive metric",
+    "HMSC estimate plus external comparative metrics",
+    "proxy/descriptive unless externally tested",
+    "external or descriptive fallback",
+    "external precomputed",
+    "external precomputed",
+    "descriptive/proxy, not causal mediation",
+    "descriptive/proxy with optional precomputed regimes",
+    "requires population/time-series data",
+    "scenario projection",
+    "proxy/heuristic unless calibrated",
+    "proxy/heuristic unless calibrated",
+    "heuristic probability unless calibrated",
+    "scenario dynamic state update",
+    "opportunity proxy, not true speciation rate",
+    "reliability index, not confidence interval",
+    "validation estimate or precomputed diagnostic",
+    "reporting/reproducibility"
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(formula_steps, caption = "Advanced formula and reporting step index")
+
+```
+
+# 每个高级公式对应的真实代码
+
+下面先把 24 个高级步骤逐条给出“输入对象 -> 真实代码 -> 输出含义”。后面的章节再运行其中的轻量示例，
+或给出 full/report 代码。这样读者不会只看到公式和输出，而不知道每个结果是由哪段代码产生的。
+
+```{r formula-stepwise-code-record, results='asis'}
+r_string <- function(x) paste0("\"", gsub("([\"\\\\])", "\\\\\\1", x), "\"")
+emit_code <- function(lines) cat("```r\n", paste(lines, collapse = "\n"), "\n```\n\n", sep = "")
+
+formula_step_code <- list(
+  "01" = c("evidence_class <- data.frame(class = c(\"HMSC estimate\", \"external estimate\", \"proxy\", \"heuristic scenario\", \"mock\"), causal_claim_allowed = FALSE)", "knitr::kable(evidence_class)"),
+  "02" = c("evo <- hmsc_ecoevo(beta = beta, beta_draws = beta_draws, gamma = gamma, traits = traits, rho = c(rho = 0.45))", "niche <- calc_niche_metrics(evo)", "knitr::kable(niche$beta_summary)"),
+  "03" = c("gamma_summary <- calc_gamma_evolution_metrics(evo)", "validation_summary <- calc_validation_metrics(evo)", "knitr::kable(gamma_summary$gamma_heatmap)"),
+  "04" = c("beta_draw_table <- as.data.frame.table(beta_draws, responseName = \"draw_value\")", "support <- aggregate(draw_value > 0 ~ species + axis, beta_draw_table, mean)", "names(support)[3] <- \"posterior_support_positive\"", "knitr::kable(support)"),
+  "05" = c("niche <- calc_niche_metrics(evo)", "knitr::kable(niche$magnitude)", "knitr::kable(round(niche$cosine_similarity, 3))"),
+  "06" = c("niche <- calc_niche_metrics(evo)", "knitr::kable(niche$optimum)", "knitr::kable(niche$breadth)"),
+  "07" = c("niche <- calc_niche_metrics(evo)", "knitr::kable(niche$beta_pca$scores)", "plot_niche_summary(evo, style = \"nature\")"),
+  "08" = c("pre_phylo <- list(pagel_lambda = pagel_table, blomberg_k = k_table, moran_i = moran_table)", "phylo_metrics <- calc_phylo_signal_metrics(evo, precomputed = pre_phylo)", "knitr::kable(phylo_metrics$global_signal)"),
+  "09" = c("pre_phylo$local_moran <- local_moran_table", "pre_phylo$clade_conservatism <- cci_table", "phylo_metrics <- calc_phylo_signal_metrics(evo, precomputed = pre_phylo)", "knitr::kable(phylo_metrics$local_signal)"),
+  "10" = c("pre_evo <- list(branch_shifts = branch_shift_table)", "transition <- calc_evo_transition_metrics(evo, precomputed = pre_evo)", "knitr::kable(transition$branch_shifts)", "knitr::kable(transition$number_of_shifts)"),
+  "11" = c("pre_evo <- list(rate_shifts = rate_shift_table, dtt = dtt_table, early_burst = eb_table, mdi = mdi_table)", "transition <- calc_evo_transition_metrics(evo, precomputed = pre_evo)", "plot_evo_transition(transition, style = \"nature\")"),
+  "12" = c("pre_evo <- list(adaptive_regimes = regimes_table, convergence = convergence_table, peak_reuse = peak_reuse_table)", "transition <- calc_evo_transition_metrics(evo, precomputed = pre_evo)", "knitr::kable(transition$convergence)"),
+  "13" = c("pre_med <- list(trait_r2 = trait_r2_table, history_r2 = history_r2_table, residual_rho = residual_rho_table)", "mediation <- calc_trait_mediation_metrics(evo, precomputed = pre_med)", "plot_trait_mediation(mediation, style = \"nature\")"),
+  "14" = c("gamma_evo <- calc_gamma_evolution_metrics(evo, precomputed = list(clade_gamma = clade_gamma_table, turnover = turnover_table))", "plot_gamma_evolution(gamma_evo, style = \"nature\")"),
+  "15" = c("population <- calc_population_evolution_metrics(evo, precomputed = list(population_beta = population_beta_table, reaction_norms = reaction_norm_table))", "plot_population_evolution(population, style = \"nature\")"),
+  "16" = c("projection_defs <- hee_projection_formula(include_q = TRUE, extrapolation_mode = \"flag\")", "knitr::kable(projection_defs)", "combined <- hee_combine_projection_models(suitability, accessibility = A_BGB, phylo_mask = E_phylo, landmask = landmask, static_filter = static_filter, dynamic_filter = dynamic_filter, strict = TRUE)"),
+  "17" = c("struct <- hee_structural_connectivity(pairs, alpha = 0.01)", "func <- hee_functional_connectivity(struct, traits = traits_conn, expand_species = TRUE)", "clim <- hee_climatic_connectivity(func, climate_from = climate_from, climate_to = climate_to)"),
+  "18" = c("source <- hee_colonisation_pressure(previous, clim, include_self = FALSE)", "rescue <- hee_rescue_effect(previous, clim, include_self = FALSE)", "knitr::kable(source)", "knitr::kable(rescue)"),
+  "19" = c("colonisation <- hee_colonisation_probability(state, suitability = suitability_tab, source_pressure = source)", "extinction <- hee_extinction_probability(state, suitability = suitability_tab, rescue_effect = rescue)", "knitr::kable(colonisation)", "knitr::kable(extinction)"),
+  "20" = c("dynamic <- hee_dynamic_assembly(previous_state = initial_state, suitability = suitability_tab, colonisation = colonisation, extinction = extinction, time_direction = \"forward\")", "knitr::kable(dynamic)"),
+  "21" = c("speciation_input <- merge(landscape, clim, by = intersect(names(landscape), names(clim)), all.x = TRUE)", "speciation <- hee_speciation_opportunity(speciation_input)", "knitr::kable(speciation)"),
+  "22" = c("reliability <- hee_prediction_reliability(extrapolation_risk = risk, model_agreement = agreement, phylo_support = phylo_support, calibration = calibration)", "knitr::kable(reliability)"),
+  "23" = c("pre_validation <- list(cv = cv_table, posterior_predictive = ppc_table, mcmc = mcmc_table, simulation_recovery = recovery_table)", "validation <- calc_validation_metrics(evo, precomputed = pre_validation)", "plot_validation_dashboard(validation, style = \"nature\")"),
+  "24" = c("source(\"scripts/rebuild_case01_complete_report.R\")", "hee_write_full_workflow_report(\"outputs/case01_full_final_paper_audit_20260812_run2\", output_file = \"outputs/case01_full_final_paper_audit_20260812_run2/reports/hmscecoevo_full_540Ma_workflow.docx\")", "hee_write_ordered_outputs(\"outputs/case01_full_final_paper_audit_20260812_run2\", include_rds = TRUE, overwrite = TRUE)")
+)
+
+formula_step_explain <- c(
+  "01" = "先把证据类型分开，避免把 posterior estimate、external estimate、proxy、heuristic 和 mock 混写。",
+  "02" = "Beta summary 来自 posterior draws，输出 mean/median/lwr/upr/support，是 HMSC 后验摘要。",
+  "03" = "Gamma/Rho/Omega 由对应 calc 函数整理；缺少对象时应显示缺失或跳过，而不是伪造。",
+  "04" = "posterior support 是后验样本大于 0 的比例，可解释方向支持，但不是频率学 p 值。",
+  "05" = "magnitude 和 cosine similarity 是 beta 向量描述指标，默认排除截距。",
+  "06" = "optimum/breadth 需要二次响应项；没有二次项时只能报告可计算轴或跳过。",
+  "07" = "Beta PCA 把 species x beta-axis 矩阵投到多维生态位空间，用于描述差异和 clade hull。",
+  "08" = "Pagel lambda、K、Cmean、Moran I 需要 HMSC 或外部比较方法输出；包负责整合和画图。",
+  "09" = "local Moran/LIPA 和 CCI 定位 tip/clade 信号，若没有置换检验只能作为描述性定位。",
+  "10" = "branch shift 优先读取外部 P_shift；number_of_shifts 统计超过阈值的后验转变分支。",
+  "11" = "rate shift、BM/OU/EB、DTT、MDI 不能由包硬造，必须用 precomputed 表接入。",
+  "12" = "adaptive regime/convergence/peak reuse 需要 bayou、SURFACE 或等价外部模型。",
+  "13" = "trait mediation 是解释方差分解和残差信号诊断，不是因果中介证明。",
+  "14" = "Gamma evolution 比较 clade/regime 间 trait-function 关系变化，是功能周转描述。",
+  "15" = "population 模块需要群体或时间序列数据；没有数据只能跳过或用模拟场景展示。",
+  "16" = "M1-M5 是深时投影情景公式；缺少必需组件 strict=TRUE 会报错。",
+  "17" = "三类连通性是结构、性状扩散能力和气候可通过性的代理指标。",
+  "18" = "source/rescue 计算邻近来源和救援，默认排除 self-loop，避免自环虚高。",
+  "19" = "殖入/灭绝概率由 rate 转 probability 并裁剪到 [0,1]，需要外部校准才可称为经验概率。",
+  "20" = "动态占据按相邻 time_ma 传播，delta_t 用绝对相邻时间差，地理不存在强制为 0。",
+  "21" = "成种机会是机会指数，不是真实成种率；缺证据不能自动变成正值。",
+  "22" = "可靠性是综合指数，不是统计置信区间；缺分量时按文档规则中性或重新归一化。",
+  "23" = "验证整合 CV、PPC、MCMC 和 simulation recovery；真实 fossil validation 需要外部化石数据。",
+  "24" = "报告重建扫描已有表和图，把 ordered outputs 和解释边界写入 Word。"
+)
+
+for (sid in formula_steps$step_id) {
+  row <- formula_steps[formula_steps$step_id == sid, , drop = FALSE]
+  cat("\n\n## Step ", row$step_id, ". ", row$topic, "\n\n", sep = "")
+  cat("**公式/规则：** ", row$formula, "\n\n", sep = "")
+  cat("**证据类型：** ", row$evidence_class, "\n\n", sep = "")
+  cat("**真实代码：**\n\n")
+  emit_code(formula_step_code[[sid]])
+  cat("**代码是什么意思：** ", formula_step_explain[[sid]], "\n\n", sep = "")
+  cat("**解释边界：** 这一步输出应按证据类型解释；proxy/heuristic/mock 不可写成因果估计或真实历史过程。\n\n")
+}
+```
+
+# 01. 证据等级分类
+
+| 类型 | 可以怎么写 | 不能怎么写 |
+|---|---|---|
+| HMSC estimate | HMSC 后验均值、credible interval、posterior support | 直接写成因果效应 |
+| External estimate | BioGeoBEARS、plate reconstruction、BM/OU/EB 等外部模型输出 | 说成 HmscEcoEvo 自己推断 |
+| Proxy | connectivity、opportunity、reliability 等指标 | 写成真实扩散率或真实成种率 |
+| Heuristic scenario | M1-M5、Q_extrap downweight、dynamic assembly | 写成唯一真实历史 |
+| Mock | Case 1 模拟 BGB/化石/地学过程 | 写成真实实证结果 |
+
+# 02-07. Beta/Gamma/Rho/Omega 与 niche metrics 的真实代码
+
+```{r posterior-and-niche-quick}
+set.seed(7)
+beta <- matrix(
+  c(0.2, -0.3, 0.6,
+    0.8,  0.1, -0.2,
+   -0.4,  0.5, 0.3),
+  nrow = 3,
+  byrow = TRUE,
+  dimnames = list(paste0("sp", 1:3), c("(Intercept)", "temp", "precip"))
+)
+beta_draws <- array(
+  rnorm(100 * 3 * 3, rep(beta, each = 100), 0.15),
+  dim = c(100, 3, 3),
+  dimnames = list(draw = NULL, species = rownames(beta), axis = colnames(beta))
+)
+traits <- data.frame(
+  species = paste0("sp", 1:3),
+  body_size = c(1.2, 0.7, 1.8),
+  seed_mass = c(0.5, 1.1, 0.9)
+)
+gamma <- matrix(
+  c(0.0, 0.4, -0.2,
+    0.0, 0.3, 0.1),
+  nrow = 2,
+  byrow = TRUE,
+  dimnames = list(c("body_size", "seed_mass"), c("(Intercept)", "temp", "precip"))
+)
+
+evo <- hmsc_ecoevo(
+  beta = beta,
+  beta_draws = beta_draws,
+  gamma = gamma,
+  traits = traits,
+  rho = c(rho = 0.45),
+  omega = structure(diag(3), dimnames = list(rownames(beta), rownames(beta))),
+  distr = "probit"
+)
+
+niche <- calc_niche_metrics(evo)
+knitr::kable(head(niche$beta_summary), caption = "Posterior Beta summary with support")
+knitr::kable(niche$magnitude, caption = "Niche-vector magnitude; intercept excluded by default")
+knitr::kable(round(niche$cosine_similarity, 3), caption = "Species x species Beta cosine similarity")
+```
+
+**怎么解读。** `posterior support = Pr(parameter > 0)`。`magnitude` 和 PCA 默认排除
+`(Intercept)`，避免把基线出现率当成生态位方向。cosine similarity 只说明 Beta 向量方向相似，
+不是生态位收敛的正式检验。
+
+```{r posterior-and-niche-plots, eval=FALSE}
+plot_niche_summary(evo, style = "nature")
+plot_niche_summary(evo, style = "classic")
+```
+
+# 08-09. 系统发育信号的真实接口
+
+```{r phylo-signal-precomputed}
+pre_phylo <- list(
+  pagel_lambda = data.frame(axis = c("temp", "precip"), estimate = c(0.62, 0.31),
+                            lwr = c(0.40, 0.12), upr = c(0.82, 0.55)),
+  blomberg_k = data.frame(axis = c("temp", "precip"), estimate = c(0.55, 0.24),
+                          lwr = c(0.30, 0.08), upr = c(0.80, 0.48)),
+  abouheif_cmean = data.frame(axis = c("temp", "precip"), estimate = c(0.47, 0.21),
+                              lwr = c(0.20, 0.02), upr = c(0.70, 0.45)),
+  moran_i = data.frame(axis = c("temp", "precip"), estimate = c(0.42, 0.18),
+                       lwr = c(0.14, -0.05), upr = c(0.66, 0.40)),
+  local_moran = data.frame(species = paste0("sp", 1:3), axis = "temp",
+                           local_moran_i = c(0.2, -0.1, 0.4), p_value = c(0.1, 0.5, 0.03)),
+  clade_conservatism = data.frame(clade = c("A", "B"), CCI = c(0.8, -0.2),
+                                  lwr = c(0.4, -0.5), upr = c(1.2, 0.1))
+)
+
+phylo_metrics <- calc_phylo_signal_metrics(evo, precomputed = pre_phylo)
+knitr::kable(phylo_metrics$global_signal, caption = "Global phylogenetic-signal metrics")
+knitr::kable(phylo_metrics$local_signal, caption = "Local Moran/LIPA-style signal table")
+```
+
+**怎么解读。** HMSC `rho` 是 HMSC 模型中的系统发育随机效应强度。Pagel's lambda、
+Blomberg's K、Abouheif's Cmean 和 Moran's I 应由相应比较方法或外部预计算表提供；
+HmscEcoEvo 只负责标准化和同图展示。
+
+# 10-12. Branch shift、rate shift、DTT、MDI 和 convergence
+
+```{r evo-transition-precomputed}
+pre_evo <- list(
+  branch_shifts = data.frame(
+    branch = c("sp1", "sp2"),
+    axis = c("temp", "precip"),
+    P_shift = c(0.92, 0.35),
+    delta_theta = c(1.4, 0.3),
+    shift_magnitude = c(1.4, 0.3)
+  ),
+  shift_count_posterior = data.frame(
+    n_shifts = 0:4,
+    posterior_probability = c(0.05, 0.20, 0.45, 0.25, 0.05)
+  ),
+  rate_shifts = data.frame(
+    clade = c("A", "B"),
+    axis = c("temp", "precip"),
+    rate_ratio = c(1.8, 0.7),
+    P_rate_shift = c(0.83, 0.22)
+  ),
+  dtt = data.frame(time = c(100, 50, 0), disparity = c(0.2, 0.4, 0.7),
+                   axis = "multivariate", source = "external_DTT"),
+  mdi = data.frame(axis = "multivariate", MDI = 0.31, source = "external_DTT"),
+  early_burst = data.frame(axis = "multivariate", alpha = -0.02,
+                           source = "external_EB_model"),
+  convergence = data.frame(species1 = "sp1", species2 = "sp3",
+                           convergence_score = 0.78, source = "external_regime_model"),
+  peaks = data.frame(peak = "warm_wet", species = "sp1", reuse_count = 2)
+)
+
+transition <- calc_evo_transition_metrics(evo, precomputed = pre_evo)
+knitr::kable(transition$branch_shifts, caption = "Branch-level shift table with P_shift")
+knitr::kable(transition$number_of_shifts, caption = "Number of niche shifts; P_shift threshold used when available")
+knitr::kable(transition$shift_count_posterior, caption = "Posterior distribution of total shift counts")
+```
+
+**怎么解读。** Branch shift、rate shift、DTT、MDI、EB、adaptive regimes、convergence
+和 peak reuse 都需要外部模型支持。没有这些预计算表时，HmscEcoEvo 可以给出 descriptive
+Beta contrast，但不能把它写成 bayou/SURFACE 推断。
+
+```{r evo-transition-plot, eval=FALSE}
+plot_evo_transition(transition, style = "nature")
+```
+
+# 13-15. Trait mediation、Gamma evolution 和 population eco-evolution
+
+```{r mediation-gamma-population}
+pre_med <- list(
+  history_explained_r2 = data.frame(axis = c("temp", "precip"), r2 = c(0.25, 0.18)),
+  trait_omission_sensitivity = data.frame(trait = c("body_size", "seed_mass"),
+                                          delta_residual_rho = c(0.08, 0.04))
+)
+mediation <- calc_trait_mediation_metrics(evo, precomputed = pre_med)
+gamma_evo <- calc_gamma_evolution_metrics(
+  evo,
+  precomputed = list(
+    gamma_shifts = data.frame(branch = "sp1", P_gamma_shift = 0.85),
+    trait_function_turnover = data.frame(group = "A", turnover_index = 0.6)
+  )
+)
+population <- calc_population_evolution_metrics(
+  evo,
+  precomputed = list(
+    feedback_paths = data.frame(path = "community -> selection -> beta", estimate = 0.3)
+  )
+)
+
+knitr::kable(head(mediation$decomposition), caption = "Trait/history mediation decomposition")
+knitr::kable(head(gamma_evo$trait_function_turnover), caption = "Trait-function turnover input/output")
+knitr::kable(head(population$feedback_paths), caption = "Population/time-series feedback path table")
+```
+
+**怎么解读。** TMNS、HMNS、THMNS 和 HPNS 是描述性分解。若没有实验设计、时间因果顺序或
+结构方程模型，它们不能写成 causal mediation。Population feedback path 也是描述性或外部模型结果。
+
+# 16. M1-M5 projection 公式和真实组合函数
+
+```{r projection-formula-code}
+knitr::kable(hee_projection_formula(), caption = "M1-M5 projection formulas")
+knitr::kable(
+  hee_projection_component_example(
+    S_HMSC = 0.8,
+    A_BGB = 0.25,
+    E_phylo = 1,
+    L_land = 1,
+    D_static = 0.6,
+    D_dynamic = 0.1,
+    Q_extrap = 1
+  ),
+  caption = "Numeric example: how components reduce final probability"
+)
+
+suitability <- data.frame(
+  species = c("sp1", "sp1"),
+  cell_id = c("c1", "c2"),
+  region = c("A", "B"),
+  time_ma = 0,
+  suitability = c(0.8, 0.6)
+)
+accessibility <- data.frame(
+  species = "sp1",
+  region = c("A", "B"),
+  time_ma = 0,
+  accessibility = c(1, 0.4)
+)
+phylo_mask <- data.frame(species = "sp1", time_ma = 0, E_phylo = 1)
+landmask <- data.frame(cell_id = c("c1", "c2"), time_ma = 0, land_weight = c(1, 0))
+static_filter <- data.frame(species = "sp1", cell_id = c("c1", "c2"),
+                            time_ma = 0, D_static = c(0.7, 0.7))
+dynamic_filter <- data.frame(species = "sp1", cell_id = c("c1", "c2"),
+                             time_ma = 0, D_dynamic = c(0.5, 0.5))
+
+combined <- hee_combine_projection_models(
+  suitability = suitability,
+  accessibility = accessibility,
+  phylo_mask = phylo_mask,
+  landmask = landmask,
+  static_filter = static_filter,
+  dynamic_filter = dynamic_filter,
+  strict = TRUE
+)
+knitr::kable(combined, caption = "Real hee_combine_projection_models output")
+```
+
+**怎么解读。** `c2` 的 `land_weight = 0`，所以最终 probability 必须为 0。
+如果 accessibility、phylo mask 或 dispersal filter 表被显式提供但未匹配，严格模式应把缺失视为
+不可达或报错，而不是默认 1。
+
+# 17-22. 地学过程、动态组装和可靠性
+
+```{r geoprocess-real-calls}
+pairs <- data.frame(
+  from_region = c("A", "A", "B"),
+  to_region = c("B", "C", "A"),
+  time_ma = c(10, 10, 10),
+  paleodistance = c(50, 150, 50),
+  barrier_strength = c(0.1, 0.7, 0.1),
+  route_open = c(1, 1, 1)
+)
+struct <- hee_structural_connectivity(pairs, alpha = 0.01)
+traits_conn <- data.frame(species = c("sp1", "sp2"), dispersal = c(20, 80))
+func <- hee_functional_connectivity(struct, traits = traits_conn, expand_species = TRUE)
+clim <- hee_climatic_connectivity(
+  transform(func, environment_distance = c(0.1, 0.2, 0.5, 0.6, 0.1, 0.2)),
+  phi = 1
+)
+
+previous <- data.frame(
+  species = "sp1",
+  region = c("A", "B"),
+  time_ma = 10,
+  occupancy_probability = c(0.9, 0.1)
+)
+source <- hee_colonisation_pressure(previous, clim, include_self = FALSE)
+rescue <- hee_rescue_effect(previous, clim, include_self = FALSE)
+colonisation <- hee_colonisation_probability(
+  data.frame(species = "sp1", cell_id = "B", region = "B", time_ma = 0, suitability = 0.7),
+  source_pressure = data.frame(species = "sp1", cell_id = "B", region = "B",
+                               time_ma = 0, source_pressure = 0.4),
+  accessibility = data.frame(species = "sp1", cell_id = "B", region = "B",
+                             time_ma = 0, accessibility = 0.8),
+  delta_t = 10
+)
+extinction <- hee_extinction_probability(
+  data.frame(species = "sp1", cell_id = "B", time_ma = 0, suitability = 0.2,
+             land_loss = 0, isolation = 0.6, area_km2 = 10,
+             rescue_effect = 0.4, geographic_existence = 1),
+  delta_t = 10
+)
+dynamic <- hee_dynamic_assembly(
+  previous_state = data.frame(species = "sp1", cell_id = "B", time_ma = 10,
+                              occupancy_probability = 0.1),
+  suitability = data.frame(species = "sp1", cell_id = "B", time_ma = c(10, 0),
+                           suitability = c(0.6, 0.7)),
+  colonisation = data.frame(species = "sp1", cell_id = "B", time_ma = c(10, 0),
+                            colonisation_probability = c(0.1, 0.3)),
+  extinction = data.frame(species = "sp1", cell_id = "B", time_ma = c(10, 0),
+                          extinction_probability = c(0.05, 0.1)),
+  geo_mask = data.frame(cell_id = "B", time_ma = c(10, 0), geographic_existence = c(1, 1)),
+  phylo_mask = data.frame(species = "sp1", time_ma = c(10, 0), E_phylo = c(1, 1))
+)
+speciation <- hee_speciation_opportunity(
+  data.frame(isolation_duration_ma = 20, niche_divergence = 0.7,
+             area_km2 = 100, habitat_heterogeneity = 0.5,
+             population_persistence = 0.8, source_pressure = 0.4,
+             connectivity = 0.2, ecological_opportunity = 0.6,
+             land_age_ma = 5)
+)
+reliability <- hee_prediction_reliability(
+  extrapolation = data.frame(cell_id = "B", time_ma = 0, extrapolation_score = 0.3),
+  model_agreement = data.frame(cell_id = "B", time_ma = 0, model_agreement = 0.9),
+  phylo_validity = data.frame(cell_id = "B", time_ma = 0, phylo_validity = 1),
+  calibration = data.frame(cell_id = "B", time_ma = 0, calibration = 0.8)
+)
+
+knitr::kable(struct, caption = "Structural connectivity")
+knitr::kable(head(func), caption = "Functional connectivity expanded explicitly to species")
+knitr::kable(head(clim), caption = "Climatic connectivity")
+knitr::kable(colonisation[, c("colonisation_rate_lambda", "colonisation_probability")],
+             caption = "Colonisation probability")
+knitr::kable(extinction[, c("extinction_rate_lambda", "extinction_probability",
+                            "forced_geographic_extinction")],
+             caption = "Extinction probability")
+knitr::kable(dynamic, caption = "Dynamic occupancy update")
+knitr::kable(speciation[, grep("opportunity|lambda|index", names(speciation), value = TRUE)],
+             caption = "Speciation opportunity indices; not true speciation rates")
+knitr::kable(reliability, caption = "Prediction reliability index")
+```
+
+**怎么解读。** 这些函数都把输出限制到 `[0,1]`，或把 rate/lambda 保持非负。
+缺少 process evidence 时，默认应是“不增加过程强度”：例如缺 source pressure 时不凭空殖入，
+缺 speciation evidence 时不凭空生成正的成种机会。
+
+# 23. Validation diagnostics 的真实调用
+
+```{r validation-real-calls}
+pre_validation <- list(
+  simulation_recovery = data.frame(
+    metric = c("richness", "probability"),
+    true_value = c(1, 0.5),
+    estimated_value = c(0.9, 0.55)
+  ),
+  block_cross_validation = data.frame(
+    block = c("fold1", "fold2"),
+    metric = "AUC",
+    value = c(0.80, 0.78)
+  ),
+  posterior_predictive_check = data.frame(
+    metric = "PPC_p_value",
+    value = 0.42
+  ),
+  mcmc_diagnostics = data.frame(
+    parameter = c("Beta_temp", "Gamma_body"),
+    ESS = c(600, 520),
+    Rhat = c(1.01, 1.02)
+  )
+)
+
+validation <- calc_validation_metrics(evo, precomputed = pre_validation)
+knitr::kable(validation$simulation_recovery, caption = "Simulation recovery diagnostic")
+knitr::kable(validation$block_cross_validation, caption = "Block CV diagnostic")
+knitr::kable(validation$mcmc_diagnostics, caption = "MCMC diagnostic table")
+```
+
+**怎么解读。** CV、PPC、ESS/Rhat 是统计诊断。它们不能消除外推风险；
+只能告诉我们模型在现代或模拟条件下是否表现合理。
+
+# 24. Word 报告重建和图片/表格审计
+
+## 真实 report rebuild 代码
+
+```{r report-rebuild-code, eval=FALSE}
+system2(
+  R.home("bin/Rscript"),
+  c(
+    "scripts/rebuild_case01_complete_report.R",
+    "--output=outputs/case01_full_final_paper_audit_20260812_run2",
+    "--times=540,400,252,201,145,66,23,2.58,0"
+  )
+)
+```
+
+如果只想直接调用包函数：
+
+```{r report-direct-code, eval=FALSE}
+hee_write_full_workflow_report(
+  output_root = "outputs/case01_full_final_paper_audit_20260812_run2",
+  output_file = "outputs/case01_full_final_paper_audit_20260812_run2/reports/hmscecoevo_full_540Ma_workflow.docx",
+  include_all_figures = TRUE,
+  max_table_rows = 8
+)
+
+hee_write_ordered_outputs(
+  output_root = "outputs/case01_full_final_paper_audit_20260812_run2",
+  include_rds = TRUE,
+  overwrite = TRUE
+)
+```
+
+## 当前 Case 1 输出目录的真实审计
+
+```{r report-existing-output-audit}
+output_audit <- data.frame(
+  component = c("figures_png", "tables_csv", "rds_objects", "reports_docx", "ordered_results"),
+  count = c(
+    if (dir.exists(case01_figures_dir)) length(list.files(case01_figures_dir, pattern = "\\.png$")) else 0L,
+    if (dir.exists(case01_tables_dir)) length(list.files(case01_tables_dir, pattern = "\\.csv$")) else 0L,
+    if (dir.exists(case01_rds_dir)) length(list.files(case01_rds_dir, pattern = "\\.rds$")) else 0L,
+    if (dir.exists(case01_reports_dir)) length(list.files(case01_reports_dir, pattern = "\\.docx$")) else 0L,
+    if (dir.exists(file.path(case01_output_root, "ordered_results"))) length(list.files(file.path(case01_output_root, "ordered_results"), recursive = TRUE)) else 0L
+  )
+)
+knitr::kable(output_audit, caption = "Existing Case 1 output inventory")
+
+report_files <- if (dir.exists(case01_reports_dir)) {
+  list.files(case01_reports_dir, pattern = "\\.docx$", full.names = TRUE)
+} else character()
+knitr::kable(
+  data.frame(report = basename(report_files), path = report_files),
+  caption = "Existing Word reports"
+)
+```
+
+# Methods / Results / Limitations 写作模板
+
+## Methods 可写模板
+
+```text
+We fitted a HMSC model using a site-by-species community matrix, 0 Ma
+environmental predictors extracted from the same environmental cube used for
+deep-time projection, species traits, and a time-calibrated phylogeny. Deep-time
+projection used the locked 0 Ma preprocessing recipe for all palaeoenvironmental
+layers. Five scenario models were compared: M1 environmental suitability and
+land only; M2 plus lineage time masks; M3 plus historical accessibility; M4 plus
+static dispersal; and M5 plus dynamic dispersal. Time is measured in Ma, with
+larger values indicating older ages.
+```
+
+## Results 可写模板
+
+```text
+In the simulated validation case, the M1-M5 comparison shows how environmental
+suitability, lineage existence, historical accessibility and dispersal
+constraints alter expected richness through time. These differences should be
+interpreted as sensitivity to model assumptions, not as empirical evidence for
+a unique historical dispersal process.
+```
+
+## Limitations 必须写
+
+```text
+Speciation opportunity, connectivity, rescue and prediction reliability are
+proxy or heuristic diagnostics unless independently calibrated. Simulated mock
+BioGeoBEARS and fossil records are used only to validate the workflow. The
+species-level projections become increasingly conceptual at deep times and
+should not be interpreted as true palaeodistributions of extant species without
+lineage-level modelling and independent palaeobiological data.
+```
+
+# 审稿人质疑与推荐回应
+
+| 质疑 | 推荐回应 |
+|---|---|
+| 为什么不自动估计 bayou/SURFACE shift？ | 这些模型需要专门拟合和模型选择；HmscEcoEvo 只接受 `precomputed` 表，避免伪造复杂演化推断。 |
+| 为什么 M5 和 M3 的差异不能叫动态扩散效应？ | 因为它是情景差异，依赖参数和外部重建；应写成 sensitivity to dynamic dispersal filtering。 |
+| 可靠性指数是不是置信区间？ | 不是。PRI 是多分量可靠性权重，不能替代 posterior interval 或预测误差。 |
+| 机会指数是不是成种率？ | 不是。它只表示地理、生态和历史条件组合出的 opportunity proxy。 |
+| 540 Ma 的现代 species 投影是否可信？ | species-level 深时越深越概念化；必须使用 origin mask，并建议同时报告 clade/lineage-level summaries。 |

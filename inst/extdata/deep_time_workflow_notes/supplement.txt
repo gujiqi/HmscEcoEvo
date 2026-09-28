@@ -1,0 +1,477 @@
+有。现在的文档已经把科学框架写得很完整：核心公式、九类数据、HMSC 现代校准、BioGeoBEARS 六模型、谱系时间约束、板块校正、深时投影、信息泄漏防控、动态扩散、外推风险、验证、不确定性、软件架构和版本路线都已经有了。
+
+但是如果你要发给 Codex 实现，还缺一层非常关键的东西：工程级规格说明。也就是说，要告诉 Codex 每个对象长什么样、每个函数返回什么、怎么检查错误、怎么测试、哪些先实现、哪些只留接口。否则 Codex 很容易写出一堆能运行但科学上不安全、接口不稳定、后期难维护的代码。
+
+下面这些就是我建议你补充到文档最后的 Codex 实现补丁。
+
+1. 必须补充“时间轴规范”
+
+现在文档里说时间单位通常是 Ma，数值越大越古老，但实现层还需要更严格。
+
+Codex 必须实现：
+
+hee_time_axis(  times,  unit = c("Ma", "ka", "yrBP"),  present = 0,  direction = c("older_to_younger", "younger_to_older"),  allow_irregular = TRUE)
+
+返回对象：
+
+list(  times_original = ...,  times_ma = ...,  order_index = ...,  unit = "Ma",  present = 0,  is_irregular = TRUE,  time_step = ...)
+
+规则：
+
+所有内部计算统一用 Ma；present 必须等于 0；越大越古老；所有输出文件名使用统一格式，例如 time_050.0Ma；如果输入是 ka BP，必须自动转换为 Ma；如果时间不等间隔，不要假装等间隔；动态扩散模块必须知道真实 Δt。
+
+为什么重要：你的框架涉及 300 个时间点、深时到现代、动态扩散和谱系起源时间。如果时间轴混乱，所有后续结果都会错。
+
+2. 必须补充“空间坐标与经度规范”
+
+深时数据很容易出现：
+
+经度 -180–180经度 0–360纬度经度顺序反了CRS 不一致跨日期变更线古坐标和现代坐标混用
+
+Codex 必须实现：
+
+hee_normalize_coordinates(  x,  lon = "lon",  lat = "lat",  lon_range = c("-180_180", "0_360"),  check_bounds = TRUE)
+
+还要实现：
+
+hee_check_crs()hee_check_antimeridian()hee_convert_lon_range()
+
+规则：
+
+所有点表必须明确 lon/lat 字段；所有 raster 必须记录 CRS；默认内部经度用 -180 到 180；如果古环境栅格是 0 到 360，必须显式转换或标记；面积汇总不能直接用经纬度像元数，必须使用 cell area。
+
+terra 可以处理 SpatRaster/SpatVector、大文件栅格和空间数据写出，这一层应该基于 terra 做，但不要一次把所有深时栅格读入内存。
+
+3. 必须补充“cell_id 规范”，不能靠行顺序
+
+现在文档里有 cell，但实现时不能假设每个时间片的第 1000 行就是同一个地理位置。深时古地理、陆海边界、板块回转后，格点对应关系可能变化。
+
+Codex 必须实现每个时间片的标准 cell 表：
+
+cell_table <- data.frame(  time_ma,  cell_id,  raster_cell,  paleo_lon,  paleo_lat,  present_lon = NA_real_,  present_lat = NA_real_,  land = TRUE,  region_id,  plate_id = NA,  cell_area_km2,  uncertainty_flag)
+
+核心规则：
+
+所有预测矩阵必须通过 cell_id 对齐；不能靠矩阵行号隐式对齐；跨时间摘要必须用 time_ma + cell_id；如果某个时间片海陆变化导致 cell 消失，必须保留 NA 或 land = FALSE；richness、turnover、centroid 都必须用 cell_area_km2 做面积加权。
+
+函数：
+
+hee_make_cell_table()hee_align_by_cell_id()hee_cell_area()
+
+4. 必须补充“预测尺度标准化”
+
+这是一个很容易被忽略但非常关键的问题。
+
+文档里写：
+
+Richness[c,t] = Σ_j P[j,c,t]Expected abundance[c,t] = Σ_j μ[j,c,t]
+
+这说明你已经区分了概率和丰度。 但是代码实现时必须强制区分：
+
+presence/probit → 输出 occurrence probabilitycount/Poisson/lognormal Poisson → 输出 expected abundance，不等于 occurrence probabilitynormal abundance → 输出 expected response
+
+Codex 必须实现：
+
+hee_prediction_scale(  fit,  response_type = c("presence", "count", "abundance", "cover"),  target = c("occurrence_probability", "expected_abundance", "expected_response"))
+
+还要实现：
+
+hee_can_compute_richness()
+
+规则：
+
+只有 occurrence probability 可以直接求和得到 expected richness；count 模型的 expected abundance 不能直接叫 richness；如果用户用 count 数据但要求 richness，必须提供 occurrence conversion 方法；默认不要把 count > 0 的 posterior predictive 当作唯一解释，必须明确标注。
+
+这是防止“把丰度总和误写成丰富度”的关键保险。
+
+5. 必须补充 HMSC 预测结果适配器
+
+HMSC 的 predict()、computePredictedValues() 等函数是 hmscecoevo 的核心接口；HMSC 官方文档说明它用于拟合 JSDM、分析输出和生成预测，基本输入包括 species occurrence/abundance 矩阵和环境协变量，性状、系统发育和时空采样结构是可选扩展。
+
+但是 Codex 不应在每个函数里直接假设 HMSC 返回对象的形状。应该写一个适配器。
+
+实现：
+
+hee_hmsc_predict_adapter(  fit,  XDataNew,  studyDesignNew = NULL,  ranLevelsNew = NULL,  expected = TRUE,  n_draws = NULL)
+
+然后标准化输出为：
+
+array(  data = ...,  dim = c(n_cell, n_species, n_draw),  dimnames = list(cell_id, species_id, draw_id))
+
+再写：
+
+hee_summarise_prediction_array(  arr,  probs = c(0.025, 0.5, 0.975))
+
+输出：
+
+meansdq025q50q975n_draw
+
+这样后续所有模块都只认识 hmscecoevo 的标准数组，不直接依赖 HMSC 内部结构。
+
+6. 必须补充“recipe 系统”，固定训练预处理
+
+现代训练数据怎么标准化，古环境投影必须完全照做。不能让古环境用自己的均值和标准差重新 scale。
+
+Codex 必须实现：
+
+hee_lock_recipe(  XData,  XFormula,  factor_levels = TRUE,  center_scale = TRUE)
+
+返回：
+
+list(  formula = XFormula,  variables = ...,  numeric = list(    bio1 = list(mean = ..., sd = ...),    bio12 = list(mean = ..., sd = ...)  ),  factors = list(    habitat = c("forest", "grassland", "desert")  ),  transformations = ...,  created_at = ...)
+
+应用：
+
+hee_apply_recipe(recipe, XDataNew)
+
+必须检查：
+
+新数据缺变量 → error；新分类变量出现训练中没有的水平 → error；变量顺序不同 → 自动重排；数值变量 sd = 0 → error；古环境变量单位不一致 → warning 或 error。
+
+这个功能比模型本身还重要，因为它防止投影阶段悄悄错掉。
+
+7. 必须补充“分类变量新水平处理”
+
+HMSC 或任何 GLM/JSDM 对分类变量都不能预测训练时没见过的类别。你的文档已经强调深时投影必须使用外生变量，而且 XData 必须能在古时点独立赋值。
+
+Codex 必须实现：
+
+hee_check_factor_levels(  recipe,  XDataNew,  action = c("error", "set_na", "map_to_other"))
+
+默认：
+
+action = "error"
+
+不要自动把未知古 habitat 映射到最近类别，除非用户显式提供映射表：
+
+habitat_map <- data.frame(  new_level = "paleo_tundra",  training_level = "open")
+
+8. 必须补充“依赖后端抽象”
+
+你的文档已经建议 HMSC、BioGeoBEARS、rgplates 放在 Suggests，不强依赖。 这需要后端设计。
+
+实现三个后端：
+
+hee_backend_hmsc()hee_backend_bgb()hee_backend_plate()
+
+HMSC 后端
+
+hee_fit_hmsc()hee_predict_hmsc()
+
+如果没有安装 Hmsc：
+
+给出清楚错误，不要让 R 报 obscure error。
+
+BioGeoBEARS 后端
+
+必须分两层：
+
+hee_bgb_import()hee_bgb_run_models()
+
+第一版优先实现 import，因为 BioGeoBEARS 自动运行复杂。BioGeoBEARS 用于系统树上的历史生物地理推断，常见流程包括模型比较和祖先范围推断；你的文档已经把六模型、AICc、LRT、模型平均和 BSM 作为核心模块。
+
+Plate 后端
+
+hee_reconstruct_points(  backend = c("user_table", "rgplates", "pygplates"))
+
+默认先支持：
+
+backend = "user_table"
+
+因为你已经有过去点和现在点的对应。
+
+再支持 rgplates。rgplates::reconstruct() 的文档说明它可以把现在地理坐标或空间对象重建到古位置，并分配 plate id、按所选重建模型回转。
+
+9. 必须补充“任务缓存、断点续跑、哈希判断”
+
+300 个时间片 × 多物种 × 多后验抽样，任何一次运行都可能中断。Codex 必须实现任务级 checkpoint。
+
+函数：
+
+hee_task_table()hee_run_task()hee_resume()hee_hash_inputs()
+
+任务表字段：
+
+task_idstagetime_matile_idspecies_batchscenario_idinput_hashoutput_filestatusstarted_atfinished_aterror_message
+
+状态：
+
+pendingrunningdonefailedskipped
+
+规则：
+
+如果 output_file 存在且 input_hash 一致，则跳过；如果 status = failed，可以单独重跑；任何长任务都必须先写 task table；不要只靠文件是否存在判断完成，还要检查 hash 和文件大小。
+
+这是让 Codex 写出可跑大项目代码的关键。
+
+10. 必须补充“tile / chunk 设计”
+
+文档里已经写了 chunk_size = 5000，但需要具体定义。
+
+Codex 必须实现：
+
+hee_make_tiles(  raster,  tile_ncell = 5000,  by = c("cell", "rowblock"))
+
+返回：
+
+tile_idcell_startcell_endncellextentfile_hint
+
+预测函数必须只处理一个 tile：
+
+hee_project_hmsc_tile(  fit,  env_slice,  tile,  recipe,  species_batch = NULL)
+
+然后：
+
+hee_merge_tiles()
+
+规则：
+
+任何函数不得默认把 300 个时间片全部读入内存；任何函数不得默认生成 n_cell × n_species × n_draw × n_time 的完整内存数组；默认写磁盘摘要。
+
+terra 支持处理不能完全载入内存的大型 SpatRaster，这适合你的分块设计。
+
+11. 必须补充“输出文件命名规范”
+
+Codex 如果自由发挥，很容易生成混乱文件名。要固定。
+
+建议：
+
+outputs/├── suitability/│   └── species={species_id}/time={time_ma}/stat={mean}.tif├── probability/│   └── species={species_id}/time={time_ma}/stat={mean}.tif├── richness/│   └── richness_time={time_ma}_stat={mean}.tif├── extrapolation/│   └── extrap_time={time_ma}.tif├── accessibility/│   └── access_time={time_ma}.parquet├── summaries/│   └── species_time_summary.parquet
+
+函数：
+
+hee_output_path(  type,  time_ma,  species_id = NULL,  stat = "mean",  ext = "tif")
+
+规则：
+
+time_ma 统一格式，例如 050.0Ma；species_id 必须经过安全文件名转换；原始 species name 通过 mapping table 保存；不要在文件名中使用空格、斜杠、括号。
+
+12. 必须补充“species_id / taxon_id 映射表”
+
+生态数据里物种名常有空格、括号、同物异名、特殊字符。文件名和矩阵列名都容易坏。
+
+实现：
+
+hee_make_taxon_table(  species_names,  taxon_id_prefix = "sp")
+
+输出：
+
+taxon_idspecies_originalspecies_cleangenusfamilysynonym_statusaccepted_namefile_safe_nametree_tip_label
+
+所有内部数组使用 taxon_id，报告和图上再显示 species_original。
+
+古记录验证也必须使用这个表处理：
+
+species-levelgenus-levelfamily-levelclade-level
+
+13. 必须补充“化石/古记录年龄不确定性处理”
+
+文档已有 fossils 表，字段包括 age_min、age_max、evidence_type、certainty，并强调优先作为独立验证。 但实现时不能只取一个年龄点。
+
+Codex 必须实现：
+
+hee_validate_fossils(  projection,  fossils,  age_method = c("midpoint", "sample", "range_overlap"),  taxonomic_resolution = c("species", "genus", "family", "clade"))
+
+规则：
+
+如果 fossil 年龄范围覆盖多个 time slice，取所有重叠时间片；species fossil 用 species probability；genus fossil 用 1 - Π(1 - P_species_in_genus)；family/clade fossil 同理；certainty 可作为权重；输出 predicted probability percentile，而不仅是命中/未命中。
+
+14. 必须补充“阈值模块”，但不能让阈值主导结果
+
+文档已经说主产品应是连续概率和期望丰富度，不要先二值化再求和。 但用户一定会想要 binary maps，所以要安全实现。
+
+函数：
+
+hee_threshold_train(  predictions_modern,  observed,  method = c("max_tss", "equal_sens_spec", "prevalence", "fixed"))hee_threshold_apply(  projection,  thresholds)
+
+规则：
+
+阈值只能在现代验证集确定；古时点不能重新选择阈值；默认输出 binary 只是辅助产品；richness 默认使用连续概率求和。
+
+15. 必须补充“面积加权摘要”
+
+1° 栅格不能直接按 cell 数算面积。
+
+实现：
+
+hee_area_summary(  projection,  cell_table,  threshold = NULL,  area_weighted = TRUE)
+
+输出：
+
+species_idtime_maexpected_area_km2 = Σ P × cell_areabinary_area_km2 = Σ I(P > threshold) × cell_areamean_probability_area_weightedcentroid_loncentroid_lat
+
+规则：
+
+所有面积、重心、热点比例、避难所稳定性都必须支持 cell_area 权重。
+
+16. 必须补充“组合函数的数值安全”
+
+hee_combine() 是核心函数，但实现时必须防止 NA、维度错位和概率越界。
+
+实现检查：
+
+hee_check_combine_inputs(S, A, E, L, D = NULL, Q = NULL)
+
+规则：
+
+所有概率必须在 [0,1]；NA 默认传播为 NA，不要偷偷变 0；land = 0 时 P = 0；E_phylo = 0 时 P = 0；如果 A 缺某个 region，必须报错；如果 species 顺序不一致，必须按 taxon_id 重排；如果 time 不一致，必须报错；logit 模式下对 0/1 做 epsilon clipping。
+
+17. 必须补充“情景 ensemble 引擎”
+
+你的文档已经写了多种不确定性来源：HMSC posterior、tree、BioGeoBEARS、BSM、古气候、板块、外推、阈值。 这需要情景管理。
+
+函数：
+
+hee_define_scenarios(  hmsc_draw = 1:100,  climate_model = NULL,  tree_id = NULL,  bgb_model = NULL,  plate_model = NULL,  dispersal_alpha = NULL)hee_run_scenarios(scenarios, pipeline)hee_summarise_scenarios()
+
+输出：
+
+scenario_idfactor_namefactor_valueoutput_hash
+
+这样才能实现：
+
+model agreementscenario meanscenario sduncertainty budget
+
+18. 必须补充“最小示例数据和测试夹具”
+
+要让 Codex 写测试，必须给它目标。
+
+实现：
+
+hee_simulate_example_data(  n_sites = 30,  n_species = 8,  n_times = 3,  n_regions = 3,  seed = 1)
+
+返回：
+
+commsitesenv_nowenv_cubetreetraitstip_rangesregion_cubelandmask_cubeplate_pointsfossils
+
+用途：
+
+单元测试；vignette；CI；Codex 自检。
+
+19. 必须补充 testthat 测试清单
+
+给 Codex 明确测试目标。
+
+必须测试：
+
+hee_prepare_data 能发现 site 不对齐；hee_apply_recipe 对新 factor level 报错；hee_phylo_time_mask 不允许物种出现在起源前；hee_combine 中 land = 0 的 cell 输出 P = 0；hee_combine 中 E = 0 的 species 输出 P = 0；hee_richness 等于 rowSums(probability)；hee_extrapolation_risk 能标记超出现代范围的古环境；hee_bgb_compare 能正确计算 AIC、delta、weight；hee_output_path 生成安全文件名；hee_resume 能跳过已完成任务；hee_validate_fossils 能处理 genus-level fossil；hee_area_summary 使用 cell_area 权重。
+
+测试文件建议：
+
+tests/testthat/test-prepare-data.Rtests/testthat/test-recipe.Rtests/testthat/test-phylo-mask.Rtests/testthat/test-combine.Rtests/testthat/test-richness.Rtests/testthat/test-extrapolation.Rtests/testthat/test-bgb-compare.Rtests/testthat/test-output-paths.Rtests/testthat/test-resume.Rtests/testthat/test-fossils.R
+
+20. 必须补充“错误类型和错误信息”
+
+不要让用户看到一堆底层错误。
+
+实现 classed errors：
+
+hee_abort(  message,  class = "hee_error_data_mismatch",  details = list())
+
+错误类型：
+
+hee_error_data_mismatchhee_error_missing_specieshee_error_missing_variablehee_error_factor_levelhee_error_time_axishee_error_crshee_error_projection_alignmenthee_error_dependency_missinghee_error_memory_riskhee_error_leakage
+
+示例：
+
+Variable 'bio12' is required by the model recipe but is missing in XDataNew.
+
+比：
+
+subscript out of bounds
+
+强太多。
+
+21. 必须补充“文档和 vignettes 的最小顺序”
+
+现在文档里列了 vignettes，但 Codex 需要具体内容。
+
+建议：
+
+01_prepare_data.Rmd只用模拟数据，展示数据格式、audit、recipe。02_fit_hmsc.Rmd拟合最小 HMSC，不跑大 MCMC，用 test.run 参数。03_project_timecube.Rmd把 3 个时间片投影成概率和 richness。04_phylo_mask.Rmd展示物种起源前清零和 lineage-level 输出。05_bgb_import_compare.Rmd用 mock BioGeoBEARS 结果展示 AICc、LRT、model average。06_plate_correction.Rmd用 user_table plate_points 展示 tectonic-track。07_validation_uncertainty.Rmd展示外推风险、CV、fossil validation、scenario summary。
+
+第一版 vignette 不要依赖真实大型数据，不要要求用户安装 BioGeoBEARS 或 rgplates。
+
+22. 必须补充“许可证策略”
+
+HMSC 是 GPL-3 许可的 R 包；如果 hmscecoevo 将 Hmsc 放入 Imports 并深度调用，最稳妥是让 hmscecoevo 使用 GPL-3 或 GPL-compatible 许可证。HMSC 包说明中也列出其许可为 GPL-3。
+
+建议：
+
+License: GPL-3
+
+如果你只把 Hmsc 放在 Suggests，并允许用户安装后调用，也仍建议 GPL-3，避免后期分发风险。
+
+23. 必须补充“Codex 实现优先级”
+
+不要让 Codex 从 BioGeoBEARS 和动态扩散开始。第一轮必须做稳定基础设施。
+
+Phase A：包骨架和数据安全
+
+让 Codex 先实现：
+
+DESCRIPTIONNAMESPACER/class_data.RR/utils_errors.RR/utils_hash.RR/prepare_data.RR/recipe.RR/time_axis.RR/coordinates.RR/cell_table.RR/output_paths.RR/example_data.Rtests for all above
+
+验收标准：
+
+devtools::check() 通过；hee_simulate_example_data() 能生成完整小数据；hee_prepare_data() 返回 hee_data；hee_audit_data() 返回 check table；所有测试通过。
+
+Phase B：HMSC 适配与古环境投影
+
+实现：
+
+fit_hmsc.Rhmsc_adapter.Rproject_hmsc_timecube.Rtile.Rrichness.Rwrite_rasters.Rextrapolation.R
+
+验收标准：
+
+在 3 time slices、8 species、30 sites 的模拟数据上能跑完；输出 richness GeoTIFF；不读入全部 time cube；有 extrapolation raster。
+
+Phase C：谱系约束和 combine
+
+实现：
+
+phylo_time_mask.Rcombine_projection.Rarea_summary.Rthreshold.R
+
+验收标准：
+
+起源前 P = 0；land = 0 的 cell P = 0；richness = Σ probability；area summary 使用 cell area。
+
+Phase D：BioGeoBEARS import-first
+
+实现：
+
+bgb_import.Rbgb_compare.Rbgb_lrt.Rbgb_accessibility.Rbgb_bsm_summary.R
+
+验收标准：
+
+可以用 mock BioGeoBEARS 结果计算 AICc weights；可以生成 A[species, region, time]；可以映射到 cell-level accessibility。
+
+Phase E：板块校正 user-table-first
+
+实现：
+
+reconstruct_points.Rplate_tracks.Rextract_paleoenv_track.Rcompare_plate_corrected.R
+
+验收标准：
+
+先支持用户提供 plate_points；不用 rgplates 也能跑；如果安装 rgplates，再支持 backend = "rgplates"。
+
+Phase F：验证、报告、resume
+
+实现：
+
+validation.Rfossil_validation.Rscenario.Runcertainty.Rtask_table.Rresume.Rreport.R
+
+24. 给 Codex 的核心实现原则
+
+你可以直接把下面这段发给 Codex：
+
+Implement hmscecoevo as a modular R package. Do not build a monolithic function. Use S3 objects and validators. Do not assume row order for cells, species, or time slices; always align by IDs. Do not load all rasters, species, posterior draws, and time slices into memory at once. Use chunked/tiled processing and disk-backed outputs. Keep Hmsc, BioGeoBEARS, and rgplates as optional backends through requireNamespace(). First support user-supplied BioGeoBEARS results and user-supplied plate_points before implementing automatic external-package execution.The package must prevent scientific misuse: do not allow composition-derived site-level historical indices in deep-time projection; do not allow modern spatial random effects in deep-time projection unless the user explicitly requests current_spatial mode; do not allow species to be predicted before their origin time; do not compute expected richness from abundance predictions unless an occurrence-probability conversion is explicitly supplied.Every exported function must validate inputs, return a stable S3 object or data frame, and include classed errors. Provide a minimal simulated example dataset and testthat tests for data alignment, recipe application, phylo time mask, combine(), richness(), extrapolation risk, BioGeoBEARS model comparison, output paths, fossil validation, and resume/checkpointing.
+
+25. 最后判断：真正还缺的是什么？
+
+科学框架已经基本不缺了。真正缺的是这 10 个工程保险：
+
+1. 时间轴规范；2. 坐标和 CRS 规范；3. cell_id 对齐规范；4. 预测尺度标准化；5. HMSC 预测结果适配器；6. recipe 锁定系统；7. 任务缓存和断点续跑；8. testthat 测试清单；9. 错误类型和错误信息；10. import-first 的后端策略。
+
+这 10 个不补，Codex 很可能写出“看起来有函数、但一跑大数据就崩、科学上还可能误用”的包。补上以后，你的 hmscecoevo 就从一个方法构想变成了一个可以实施、可以测试、可以扩展、可以投稿的方法软件框架。

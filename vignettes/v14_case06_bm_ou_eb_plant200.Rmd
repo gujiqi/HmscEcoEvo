@@ -1,0 +1,160 @@
+---
+title: "Case06: Plant200 ancestral response evolution under BM, OU and EB"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Case06: Plant200 ancestral response evolution under BM, OU and EB}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", warning = FALSE,
+                      message = FALSE, out.width = "100%")
+case_dir <- Sys.getenv("HMSCEE_CASE06_OUTPUT",
+  "C:/Users/Google/Documents/HMSC-HIST/outputs/HmscEcoEvo/case06_plant200_ancestral_response_BM_OU_EB")
+case_ready <- file.exists(file.path(case_dir, "case06_quality_gates.csv"))
+case_figure <- function(name) {
+  if (case_ready) knitr::include_graphics(file.path(case_dir, "figures", name))
+  else cat("Case06 output is not present. Run scripts/case06_plant200_response_model_study.R.\n")
+}
+```
+
+# 研究问题与边界
+
+本案例问的是：**在完全相同的现代 HMSC 后验、定年树和古环境下，祖先环境响应沿树演化的假设改变，会怎样改变祖先响应曲线和潜在环境支持度？** 这不是比较扩散方案，也不是在重建已经实现的历史占据。
+
+真实输入为 200 个现生植物末端、5 套保留的 HMSC `Beta` 后验抽样、8 个已拟合的环境响应系数，以及 325–0 Ma 的 66 个原生古环境切片。古环境由同一份 PALEOMAP 板块载体汇总到 4° 全球网格。所有地图中的海洋均为空白，三模型使用完全相同的陆地与古环境。
+
+超过这棵现生谱系树根年龄的时间不是“没有植物”，而是**超出所选存活谱系的分析域**。本案例没有用 BioGeoBEARS、化石年龄重估树、未采样的灭绝谱系或历史占据观测来选择祖先响应模型。
+
+# 方法与可比性
+
+脚本逐个 HMSC 后验抽样，从现代物种的 `Beta` 系数重建沿树的祖先响应，不倒推现代分布图。比较的三种过程是：
+
+| 模型 | 在案例中的统计含义 | 不应推出的结论 |
+|---|---|---|
+| BM | 系数沿分支按恒定速率随机变化 | 不等于生态位必然完全中性 |
+| OU | 系数围绕一个共同的 optimum-like 均值变化 | AICc 较低不证明稳定化选择 |
+| EB | 演化速率从根向现在按指数衰减 | 参数贴近零不证明早期适应辐射 |
+
+三个模型均使用**相同的 tip `Beta` 抽样**，并在每条分支内取模型特异的条件均值轨迹。这样比较图中的差异来自演化模型，而不是三套不同的随机桥接噪声。随机桥接轨迹仍可通过 `branch_uncertainty = "process_bridge"` 生成，但不用于本案例主对照图。祖先节点本身是条件均值，不是完整联合节点后验。
+
+各环境轴和后验抽样分别拟合 BM、OU、EB，并保存对数似然、AICc 和参数边界标记。由于每套 tip `Beta` 抽样在比较时被当作给定值，AICc 是**条件模型敏感性诊断**，不包含 HMSC 系数估计误差的完整联合似然、树不确定性或模型先验权重。不同轴可能支持不同模型，不能把 8 个响应轴强行归为一个祖先生态位演化率。
+
+古环境支持度使用拟合 HMSC 时的同一组环境输入尺度，并以 probit 链接把“祖先 `Beta` 与当时古环境”的线性预测量转换为 0–1 指数。现代截距不被当成祖先生理耐受性，所以此指数**不是检测校正的出现概率，也不是最终古占据概率**。
+
+# 结果一：模型拟合而非机制证明
+
+```{r model-fit, fig.cap="各环境响应轴和五个 HMSC 抽样的 BM、OU、EB AICc 差值。三角形表示参数触及预先设定的边界；横轴为 log1p 视觉变换，刻度仍是实际 AICc 差值。"}
+case_figure("01_model_fit_AICc_and_boundaries.png")
+```
+
+```{r model-fit-table}
+if (case_ready) {
+  fit <- utils::read.csv(file.path(case_dir, "data",
+    "model_comparison_by_axis_draw.csv"))
+  selected <- fit[fit$selected_by_aicc, , drop = FALSE]
+  knitr::kable(as.data.frame(table(selected$model,
+    selected$boundary_status)),
+    col.names = c("AICc-selected model", "Parameter status", "Axis-draw combinations"))
+}
+```
+
+本次 8 个轴 × 5 个抽样的 40 次比较中，AICc 均给 OU 最低值，**但 OU 的吸引参数在 40 次中全部达到拟合上界**；EB 的速率变化参数则贴近 BM 边界。这意味着数据在本参数范围内没有给出稳定的有限 OU 吸引强度，不能把“OU 胜出”写成稳定化选择的证据。跨 68 个科的稀疏代表性采样和 HMSC 系数误差，也可能影响这些比较。发表前应将模型上界、树抽样、tip 系数误差和分类群取样作为敏感性分析。
+
+这个解释遵循比较方法的通用定义：[geiger 模型文档](https://cran.r-project.org/web/packages/geiger/refman/geiger.html)；逐环境轴比较 BM、OU、EB 的一个实证先例见 [Engler 等的白眼鸟研究](https://onlinelibrary.wiley.com/doi/10.1111/jbi.14128)。OU 机制解释还应遵守[宏演化 OU 的警示](https://pmc.ncbi.nlm.nih.gov/articles/PMC4558954/)。
+
+# 结果二：祖先系数如何改变
+
+```{r trajectories, fig.cap="冬青、茶树和茉莉三个现代末端通向根的祖先路径上，温度和降水响应系数的时间变化。粗线为五个 HMSC 抽样的均值，淡线为各抽样；EB 用虚线，以显示它与 BM 的重合。每个时间点标示当时活跃的祖先分支，而不是提前投影尚未出现的现代物种。"}
+case_figure("02_focal_ancestral_beta_trajectories.png")
+```
+
+BM 与 EB 轨迹高度重合，因为 EB 的速率变化拟合到接近 BM 的边界。OU 对深时祖先的响应更趋向共同均值，近现生端则向各 tip 的实际 HMSC 系数靠近。图中的弯折还受精确定年节点及分支身份切换影响，不应逐个解释为突然的生态位跃迁。
+
+```{r root-beta, fig.cap="325 Ma 所选存活谱系根节点的八个环境响应系数。每个点是一个 HMSC 后验抽样；三模型使用相同的末端系数，根部差异只来自树上的演化假设。"}
+case_figure("03_root_beta_model_comparison.png")
+```
+
+根节点不等于“所有古代植物的祖先”。它只对应本研究选取的 200 个现生末端在该定年树上的共同祖先。
+
+# 结果三：同一古环境上的投影
+
+```{r time-series, fig.cap="325–0 Ma 全球陆地面积加权的平均环境支持度。每个时间点先对当时活跃的已采样存活谱系求均值，再对有完整古环境的陆地按面积加权。该趋势同时受古环境、活跃分支集合和祖先响应影响，不能分离为单一的生态位演化趋势。"}
+case_figure("04_global_environmental_support_through_time.png")
+```
+
+图的 0–1 纵轴保持环境支持指数的原尺度。不同时间的活跃谱系数量不同，所以这不是古植物多样性或丰富度时间序列。
+
+```{r focal-maps, fig.cap="冬青现代末端的祖先路径在 300、200、100 和 0 Ma 的环境支持图。三个模型共用 [0,1] 色标；白色海洋没有模型值。Ilex 这个现代物种在成种前并不存在，地图上的深时分支是它与其他现代植物共有的祖先。"}
+case_figure("05_focal_path_support_four_times.png")
+```
+
+尤其应注意：某些深时陆地和现代南极区域环境支持指数很高，**不代表冬青曾实际占据那里**。本图尚未使用迁移、定殖、化石终点或竞争信息来估计占据。
+
+```{r mean-maps, fig.cap="各时间点活跃已采样谱系的平均环境支持度。由于不同时间的谱系集合不同，图间变化不能直接解释成真实丰富度增减。三模型图使用同一 [0,1] 色标。"}
+case_figure("06_mean_active_lineage_support_four_times.png")
+```
+
+# 结果四：模型差值与没有差值的区域
+
+```{r focal-difference, fig.cap="冬青祖先路径的 OU−BM 与 EB−BM 环境支持差值。所有时点和两类差值共用一个对称色标；浅灰陆地接近零差异，白色海洋无值。0 Ma 必须为零，因为三模型共享同一现代 tip 系数。"}
+case_figure("07_focal_path_support_difference_four_times.png")
+```
+
+```{r mean-difference, fig.cap="活跃谱系平均环境支持度的模型差值，色标与上一张图完全相同。EB−BM 近零是这份数据的实际拟合结果，不是漏画地图。"}
+case_figure("08_mean_active_lineage_support_difference_four_times.png")
+```
+
+差值图解释的是“选用哪个祖先响应演化模型会改变环境支持度”，不是 OU 或 EB 相对于 BM 的历史占据差异。0 Ma 的模型差异应当消失；这既是科学预期，也是程序质量门。
+
+```{r difference-table}
+if (case_ready) {
+  difference <- utils::read.csv(file.path(case_dir, "data",
+    "model_difference_summary.csv"))
+  difference <- difference[order(difference$metric, -difference$time_ma,
+                                 difference$comparison), ]
+  knitr::kable(difference, digits = 4,
+    caption = "相同古陆地上两种环境支持差值的面积加权平均绝对值、最大值和超过 0.05 的陆地面积比例。EB 近零值请查原 CSV 的完整精度。")
+}
+```
+
+该表补充了地图视觉判断：一个模型可以在少数网格产生较大差异，但全球面积加权差异仍较小；因此不能仅看最大值或仅看均值。
+
+# 不确定性和验收
+
+```{r noanalog-table}
+if (case_ready) {
+  analog <- utils::read.csv(file.path(case_dir, "data",
+    "noanalog_diagnostic_by_time.csv"))
+  analog <- analog[analog$time_ma %in% c(300, 200, 100, 0), ]
+  analog <- analog[order(-analog$time_ma), ]
+  knitr::kable(analog, digits = 3,
+    caption = "代表时期超出现代训练环境各轴 1%–99% 范围的陆地面积比例。此诊断不作为生物概率乘数。")
+}
+```
+
+仅有五套保留的 HMSC 抽样，因此淡线或模型间离散程度不应被称为稳健的 95% 后验区间。该边界筛查中，300、200、100 和 0 Ma 分别有约 37.9%、46.6%、41.3% 和 19.6% 的有效陆地面积至少一个环境轴超出现代训练数据的 1%–99% 范围。这提示深时外推风险较大，但**不把外推风险乘入适合度**。这里的 no-analog 只是逐轴筛查，尚不是完整多变量环境相似性检验。
+
+```{r quality-gates}
+if (case_ready) {
+  qc <- utils::read.csv(file.path(case_dir, "case06_quality_gates.csv"))
+  knitr::kable(qc, caption = "Case06 自动验收：同一现代 tip 终点、无海洋值、概率范围和模型诊断。")
+}
+```
+
+# 如何复现与如何使用
+
+源代码为 `HmscEcoEvo/scripts/case06_plant200_response_model_study.R`。从项目根目录运行：
+
+```r
+system2(file.path(R.home("bin"), "Rscript"),
+        "HmscEcoEvo/scripts/case06_plant200_response_model_study.R")
+```
+
+完整结果保存在 `outputs/HmscEcoEvo/case06_plant200_ancestral_response_BM_OU_EB`。其中 `data/ancestral_beta_conditional_*.rds` 是可继续投影的祖先响应，`data/model_comparison_by_axis_draw.csv` 是模型拟合诊断，`data/selected_time_support_maps_4deg.rds` 与 `figures/` 保存本案例的环境支持图，`case06_quality_gates.csv` 给出自动检查。
+
+将来若接入动态占据模块，必须重新区分 **环境支持度** 与 **最终占据**：不能仅因适合度较高便断言古代曾出现，也不能把 OU 的边界拟合当作已识别的宏演化机制。

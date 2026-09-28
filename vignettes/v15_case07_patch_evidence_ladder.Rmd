@@ -1,0 +1,169 @@
+---
+title: "Case07: from cells to patch histories and movement evidence"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{Case07: from cells to patch histories and movement evidence}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", warning = FALSE,
+                      message = FALSE, out.width = "100%")
+case_dir <- Sys.getenv("HMSCEE_CASE07_OUTPUT", "")
+case_ready <- nzchar(case_dir) && file.exists(file.path(case_dir,
+  "05_quality", "case07_quality_gates.csv"))
+show_figure <- function(filename) {
+  if (case_ready) knitr::include_graphics(file.path(case_dir, "04_figures", filename))
+  else cat("Run scripts/case07_patch_evidence_ladder.R, then set HMSCEE_CASE07_OUTPUT.\n")
+}
+```
+
+# 这个案例回答什么
+
+Case07 是 **HmscEE 的结果层案例**，不是新增的生物过程。它展示从网格到连通斑块、再到跨期斑块历史的六个函数，同时建立一条清楚的证据阶梯：
+
+1. **现实 Plant200 资料**：更正过的祖先环境支持、真实古陆地、板块载体和 Case05 位置边际结果，可计算生态机会斑块、板块携带链接及候选避难所。
+2. **受控三时间点案例**：已知环境格网、陆地传输、移动核和终点证据，用前向—后向递推算出联合主动移动边后验，可演示通道和供体—接受区接口。
+3. **尚不可作的结论**：受控通道不是 200 种植物的实测扩散通道；候选避难所不是已确认的古种群持续；交换角色不是繁殖率与死亡率意义上的人口统计学源地—汇地。
+
+Case07 读取 `Case05 v8/10_patch_history_results_corrected`。原先的 `08_patch_history_results` 已被更正公告废止，**不可**作为本案例输入。现实计算涵盖三条现代末端通向祖先的代表性路径（冬青、茶树和茉莉），每条 66 个时间片。所选 Plant200 树有 200 个现生末端，但这里的斑块历史不等于 200 个物种都逐一完成了斑块追踪。所有深时地图与表格都只涉及所选现生存活谱系及其祖先，不包含未取样的灭绝谱系。
+
+# 六个函数与输入对象
+
+| 函数 | 需要什么 | 输出是什么 | 本案例中的证据级别 |
+|---|---|---|---|
+| `hee_result_patches()` | 同一谱系、同一时间的环境支持、陆地面积、陆地邻接 | 连通的环境支持斑块及网格归属 | 现实复算 + 受控案例 |
+| `hee_result_patch_links()` | 相邻时期的斑块网格、同一土地单元的板块传输 | 跨期的板块携带链接，可分裂或合并 | 现实复算 + 受控案例；不是主动移动 |
+| `hee_result_patch_stability()` | 各时间的斑块与跨期链接 | 斑块历史网络、支持和环境沿链接的变化 | 现实复算 + 受控案例；网络编号不是种群身份 |
+| `hee_result_refugia_candidates()` | 斑块、链接、受支持陆地的收缩阈值 | 收缩事件及其后仍连续存在的候选生态避难斑块 | 现实复算 + 受控案例；不是生存证据 |
+| `hee_result_corridor_flow()` | **联合**主动移动边后验及两端的斑块归属 | 斑块之间的模型化主动移动质量 | 仅受控模型；真实 Case05 未保存该后验 |
+| `hee_result_donor_recipient()` | 上一步的主动流量 | 输出、输入和交换枢纽角色 | 仅受控模型；不是人口统计学源地—汇地 |
+
+整个案例始终区分四个量：**环境支持指数**（祖先响应与古环境的匹配）、**位置边际密度**（Case05 地理模型）、**板块携带面积比例**（土地移动）和**联合主动移动边后验质量**（受控 HMM）。它们不能因为都是 0–1 数字就相互相乘或改名。
+
+# 现实 Plant200 的四项结果函数
+
+Case07 对更正后的冬青路径，在 **105 Ma → 100 Ma** 从支持网格重新构建斑块，并从同一 `track_id` 的真实板块载体重新构建网格传输。质量门检查斑块的完整网格集合及每条板块携带链接的面积和来源份额，与更正保存结果一致。对三条路径的全部 66 个时间片，再运行稳定性和避难所候选函数，并逐一核对原结果。
+
+```{r real-summary}
+if (case_ready) {
+  x <- utils::read.csv(file.path(case_dir, "01_real_plant200",
+    "focal_path_summary.csv"))
+  knitr::kable(x, caption = "三条真实 Plant200 祖先路径的结果复算。")
+}
+```
+
+## 环境支持的时间变化
+
+```{r supported-area, fig.cap="三条现实祖先路径在各时段的环境支持陆地面积。每条路径在系统树节点会切换活跃祖先身份，因此曲线变化不能都解释为同一物种的生态位突然转变。"}
+show_figure("01_real_supported_area.png")
+```
+
+斑块由预先声明的支持指数阈值 `0.6` 形成，面积单位是古陆地平方公里。支持指数不是祖先占据概率，受到阈值和历史环境外推影响。不同时间的高支持面积可以反映潜在生态机会的扩张或缩小，但还没有证明谱系实际到达、建立或持续存在。
+
+## 候选避难所及阈值敏感性
+
+```{r real-refugia, fig.cap="仅当支持陆地在相邻 5 Myr 切片间缩小至少 10%，较年轻斑块有来自较老支持斑块的板块携带链接、面积至少 100,000 km2，且随后还有一条链接时，才被标记为候选。"}
+show_figure("02_real_candidate_refugia.png")
+```
+
+`01_real_plant200/corrected_candidate_refugia_recomputed.csv` 保存每个候选的面积、位置边际质量和证据标签。位置质量作为**独立描述**保留；即使数值高，也不能把“环境机会”升级为已证实的种群持续。脚本同时保存 `10%` 与 `25%` 收缩阈值下的事件数和候选数，便于看结论对阈值的敏感性。更完整的避难所判定还需要与相应时间地点匹配的化石、古 DNA 或其他独立观测。[Keppel 等对避难所的定义](https://doi.org/10.1111/j.1466-8238.2011.00686.x)包含退缩、长期维持及可能的再次扩张；本案例只提供其中的生态机会候选。
+
+# 受控斑块案例：不同情况怎样出现
+
+下面的三个时间点 **20、15、10 Ma 是人工设计的演示格网，不是 Plant200 的历史地图**。20 Ma 有两块受支持陆地，中间隔着海洋。15 Ma 有些陆地环境不再支持谱系，同时出现新陆地 `n`。板块携带会让一个较老斑块分叉到两个较年轻斑块，也能让两块老斑块进入同一新斑块；新陆地 `n` 没有来自 20 Ma 的携带来源。10 Ma 再检查这些斑块是否仍有连续土地链接。
+
+```{r toy-cells, fig.cap="受控格网的三期状态。绿色是通过环境支持阈值的陆地；灰色仍为陆地但不通过阈值；浅蓝为海洋。顺序按过去到现在排列。"}
+show_figure("03_controlled_patch_states.png")
+```
+
+```{r toy-links, fig.cap="由土地传输产生的受控跨期斑块链接。可看见分裂与合并，但线条表示板块携带的面积份额，不是物种主动扩散。"}
+show_figure("04_controlled_carriage_links.png")
+```
+
+这里的严格候选避难所要求收缩至少 `30%`，并要求年轻斑块还有下一时期的土地链接。取消“下一时期链接”条件后，候选斑块会增加。最初没有旧陆地传入的新陆地 `n` 不会因“刚形成且适合”而自动成为收缩后连续存在的避难所；它仍可在明确的主动移动模型中被定殖。
+
+# 受控联合边后验：何时才能画通道
+
+这个演示给三期格网设定了归一化的初始位置分布、两个逐期转移矩阵和 10 Ma 的终点证据。脚本对整个三期状态模型做前向—后向递推，并保存每条来源—目标边在给定终点证据后的**联合**后验质量。每个时间区间所有边的后验质量之和为 1；`edge_kind` 明确区分板块携带和主动移动。
+
+```{r corridor, fig.cap="受控 HMM 的主动移动边聚合到斑块之间。柱长是联合边后验质量；板块携带边和不在两个受支持斑块之间的主动边不在柱图中，后者的质量另在账本中报告。"}
+show_figure("05_controlled_active_corridors.png")
+```
+
+`03_joint_edge_example/posterior_mass_accounting.csv` 同时报告所有边质量、已赋到支持斑块之间的主动质量和没有被支持斑块对接收的主动质量。因此柱状图的总和**不需要等于 1**。从两张逐期位置边际图相乘，无法得到这个联合边后验，也无法区分板块携带和主动移动。[Martensen 等的动态连通性研究](https://doi.org/10.1111/2041-210X.12799)强调跨时间的斑块链接，但这里的“板块链接”和“后验主动边”仍是两种不同对象。
+
+```{r roles, fig.cap="把受控模型中相邻两个时间区间的主动通道合并后，中间时期的斑块可能同时有输入与输出，从而被标为交换枢纽。其他标签表示相对流量角色，不是繁殖与死亡意义上的源地—汇地。"}
+show_figure("06_controlled_exchange_roles.png")
+```
+
+现实 Case05 v8 目前只保存逐期位置边际与转移诊断，没有把同一条祖先历史中**先后两个格网状态的联合边后验**保存出来。因此本案例不会给 Plant200 生成所谓“真实后验通道”或“真实源地—汇地”。若未来正式加入，需在地理模型中保存扩散前后状态及前向/后向信息，逐区间生成主动边联合后验，再交给后两个结果函数；不能从板块携带图或者边际图推算替代。
+
+# 逐期真实古地理地图
+
+Case07 另有一套可切换时间的 [古地理地图图集](06_real_time_maps/index.html)。它以真实的古陆地载体为底图，将三条代表性祖先路径从 **325 Ma 到 0 Ma 的全部 66 个 5-Myr 时间片**逐张绘制；每张同时保存 PNG 和 GeoTIFF。海洋是 NA/白色，同一指标在全部时间和路径使用固定图例。图集提供三种严格区分的地图：
+
+1. **候选生态避难所**：由更正的 Case05 斑块收缩、跨期土地连续性和随后仍有链接的条件判定。颜色再区分是否有超阈值位置边际质量。这是环境机会图，不是已证实的古种群存续。最老与最新边界时间不能做双侧链接测试，陆地仍显示但该指标为 NA。
+2. **潜在移动起点**：以该时间的 Case05 祖先**位置边际分布**为来源权重，作用于同一时间的真实古陆地/地形移动核，得到未来 1 Myr 可能发生主动移动的来源质量。它不等于人口统计学“源地”。
+3. **潜在通道压力**：同一前向预测移动核产生的目标质量，另叠加权重最大的方向边作为路径示意。它是**前向预测情景**，不是给定现代/化石终点后的已使用通道后验；不能替代 `hee_result_corridor_flow()` 所要求的联合主动移动边后验。
+
+由 1° 古陆地载体聚合到 **4° 运行网格**，因此地图不会显示 1° 细节。地图索引 `06_real_time_maps/case07_real_time_map_index.csv` 保存每个时间、路径、指标的 PNG/GeoTIFF 文件名、证据类别和共享图例范围；`case07_real_time_diagnostics.csv` 保存陆地位置质量、潜在移动质量守恒和海洋零质量检查。要重新计算该图集：
+
+```sh
+"C:/Program Files/R/R-4.5.3/bin/Rscript.exe" HmscEcoEvo/scripts/case07_real_time_map_atlas.R
+```
+
+图集只对三条**示范祖先路径**生成，而不是对全部 200 个现代物种逐一给出“已证实避难所/通道”。对同一根祖先的三条路径，深时图可能相同；这来自当时活跃谱系相同，不是文件重复错误。
+
+## Plant200 全体活动谱系的源区与通道图
+
+另见 [源区与陆地通道逐期图集](07_dispersal_source_corridor_maps/index.html)。它对每个时间片的**全部活动祖先谱系**读取 Case05 的位置边际分布，先取每条活动谱系的平均，避免 0 Ma 有 200 条谱系而深时只有一条时仅因谱系数增长造成不可比的色阶。然后在当期古陆地上的局地邻接图使用 `hee_dispersal_landscape_weights()` 和 `hee_dispersal_spherical_kernel()` 计算下一 1 Myr 的方向移动权重；有海洋隔断的对角邻接不允许成为陆地通道。这里不模拟跨海长距离跳跃，因此“通道”特指局地陆地移动网络。
+
+**潜在扩散源区图**的底色是网格的预测向外移动质量，深色描边标出当期正输出陆地网格的前 10%。这只说明模型认为该网格更可能成为下一步移动的*出发位置*，不说明该地种群繁殖量超过死亡量。**潜在陆地通道图**的栅格底色是来源与目标两端的平均预测通过量，红线叠加当期权重最高的 80 条无向邻接边。图下方的“通道”一词不能解释为谱系历史上实际经过的路线。最重要的技术区分是：这里的边质量由单期**位置边际 × 预设一步移动核**得出，是**前向预测**；`hee_result_corridor_flow()` 所需的条件于全部观测的**联合主动移动边后验**仍未由真实 Case05 保存，不能由本图倒推。
+
+每期两个 PNG 与两个 GeoTIFF 均可通过 `07_dispersal_source_corridor_maps/plant200_source_corridor_map_index.csv` 找到，全部有向边的模型预测质量另存于 `edge_flux_tables/`。质量门检查 66 期、每期活动谱系数、陆地端点、海洋零质量、来源—目标质量守恒、无对角海洋抄近路、完整文件和跨时间固定色阶。重新运行：
+
+```sh
+"C:/Program Files/R/R-4.5.3/bin/Rscript.exe" HmscEcoEvo/scripts/case07_plant200_source_corridor_maps.R
+```
+
+# 运行、文件与质量门
+
+在项目根目录运行：
+
+```sh
+"C:/Program Files/R/R-4.5.3/bin/Rscript.exe" HmscEcoEvo/scripts/case07_patch_evidence_ladder.R
+```
+
+可用 `--source=...` 指定**更正后的** Case05 结果目录，`--output=...` 指定新输出目录。结果按如下层次保存：
+
+| 文件夹 | 内容 | 科学地位 |
+|---|---|---|
+| `00_contract` | 六个函数的输入、执行状态和证据类型 | 防止不同量混名 |
+| `01_real_plant200` | 三条路径的真实摘要、候选结果、105→100 Ma 板块链接复算 | 真实资料推得的生态机会和土地链接 |
+| `02_controlled_patch_cases` | 三期斑块、分裂合并、收缩、严格与宽松候选 | 已知答案的功能演示 |
+| `03_joint_edge_example` | 明确指定的 HMM 联合边后验、主动通道和交换角色 | 方法演示，不是现实 Plant200 后验 |
+| `04_figures` | 六张上述 PNG | 图上区分 real 与 controlled |
+| `05_quality` | 来源、复算、归一化、质量守恒与图文件检查 | 不通过即停止 |
+| `06_real_time_maps` | 66 期真实古地理候选避难所、潜在起点和通道压力的 PNG/GeoTIFF 与交互索引 | 避难所为现实生态机会；移动为前向预测情景，非历史边后验 |
+| `07_dispersal_source_corridor_maps` | 66 期全部活动谱系的潜在扩散源区和局地陆地通道地图、完整预测边表 | 前向预测的局地出发区域与边通量，不是人口统计学源地或已用路线 |
+
+```{r quality}
+if (case_ready) {
+  q <- utils::read.csv(file.path(case_dir, "05_quality",
+    "case07_quality_gates.csv"))
+  knitr::kable(q, caption = "Case07 逐项质量门。")
+}
+```
+
+## 阅读边界
+
+- `support` 是环境响应指数；`location_density` 是单谱系地理位置的边际分布；两者均不是历史群落占据矩阵。
+- `carried_area_km2` 衡量相同土地单元的跨期面积对应，不是种子传播量。
+- `posterior_movement_mass` 在本案例仅来自受控 HMM，并且只表示模型内的主动位置转移。
+- `candidate_ecological_refugium` 仍须独立化石与种群证据核验。
+- `dispersal_exporter`、`dispersal_recipient` 和 `exchange_hub` 不等于人口统计学 source、sink 或长期生态功能区。

@@ -1,0 +1,209 @@
+---
+title: "00. HmscEcoEvo Roadmap"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{00. HmscEcoEvo Roadmap}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 7,
+  fig.height = 4
+)
+```
+
+# Scientific Question
+
+`HmscEcoEvo` asks how a fitted HMSC model, historical-biogeographic tables,
+phylogeny, traits, palaeoenvironmental layers, accessibility estimates and
+optional process proxies can be assembled into a transparent eco-evolutionary
+diagnostic workflow. It is a wrapper and reporting framework. It is not a
+replacement for `Hmsc`, BioGeoBEARS, plate-reconstruction software,
+phylogenetic comparative packages, or causal process models.
+
+The package separates four interpretation classes:
+
+```{r interpretation-classes}
+classes <- data.frame(
+  class = c("estimate", "external input", "proxy", "heuristic scenario"),
+  meaning = c(
+    "Estimated by an explicit model such as HMSC or an imported fitted comparative model.",
+    "Read from a user-supplied reconstruction, fossil table, BioGeoBEARS output, or plate model.",
+    "A descriptive index standing in for a process that was not directly observed.",
+    "A configurable scenario rule used to compare mechanisms, not a fitted causal law."
+  ),
+  example = c(
+    "Beta, Gamma, Omega, fitted-model predictions",
+    "plate-reconstructed palaeo-coordinates; BioGeoBEARS model probabilities",
+    "connectivity, isolation duration, missing-trait risk",
+    "M1-M5 projection contrasts; dynamic assembly recursion"
+  )
+)
+knitr::kable(classes, caption = "Interpretation classes used throughout the vignettes.")
+```
+
+Throughout the manual, the words proxy, heuristic, mock, non-causal,
+limitations and real-data requirements are used deliberately. A mock table is
+allowed for simulated teaching examples only; a proxy or heuristic is a
+diagnostic scenario component; non-causal means the output should not be read as
+proof of mechanism.
+
+`time_ma` always means millions of years before present. Larger values are
+older. `origin_ma` is the species or lineage origin time in the same direction:
+species-level probability must be zero when `time_ma > origin_ma`.
+
+# Reading Order
+
+The vignette system is deliberately numbered. Read 00 first, then follow the
+branch that matches your scientific task.
+
+```{r vignette-roadmap}
+roadmap <- data.frame(
+  order = sprintf("%02d", 0:15),
+  vignette = c(
+    "v00_index_roadmap",
+    "v01_basic_hmsc_ecoevo_workflow",
+    "v02_seven_diagnostic_figures",
+    "v03_history_to_hmsc",
+    "v04_deep_time_hindcasting_540Ma",
+    "v05_geological_processes_dynamic_assembly",
+    "v06_biogeography_plate_correction",
+    "v07_case01_full_simulated_results",
+    "v08_case02_realdata_template",
+    "v09_advanced_diagnostics_and_reporting",
+    "v10_case03_geoprocess_past_to_present",
+    "v11_case04_plant200_ancestral_suitability",
+    "v12_case05_global_dispersal_diversity",
+    "v13_case05_patch_history_results",
+    "v14_case06_bm_ou_eb_plant200",
+    "v15_case07_patch_evidence_ladder"
+  ),
+  best_for = c(
+    "Everyone",
+    "New HMSC users and package reviewers",
+    "Readers of Figures 1-7",
+    "Users migrating from hmscHist",
+    "Palaeoenvironment and hindcasting users",
+    "Earth-process and dynamic-assembly users",
+    "Historical biogeography and plate users",
+    "Reproducing the simulated full workflow",
+    "Real-data projects",
+    "Optional comparative methods and manuscript reporting",
+    "Geological-process past-to-present workflow users",
+    "Readers reconstructing ancestral environmental responses on Plant200",
+    "Readers auditing formal Plant200 dispersal-conditioned map results",
+    "Readers interpreting Case05 patch histories and candidate refugia",
+    "Readers comparing BM, OU and EB ancestral-response assumptions",
+    "Readers separating real patch diagnostics from controlled posterior movement examples"
+  ),
+  heavy_code = c("No", "No", "No", "Mostly no", "Documented as eval=FALSE",
+                 "No", "Optional external", "Reads saved outputs",
+                 "Template only", "No", "Quick run plus full command",
+                 "Reads a development output; full command documented as eval=FALSE",
+                 "Reads formal maps; full command documented as eval=FALSE",
+                 "Reads saved Case05 derived results",
+                 "Reads saved Case06 figures; full runner is a separate script",
+                 "Reads Case07 real-data replay and controlled joint-edge figures"),
+  main_output = c(
+    "map of the manual",
+    "first `hmsc_ecoevo` object and diagnostic metrics",
+    "panel-by-panel interpretation guide",
+    "HMSC-ready historical predictors, trait-history mediation results and leakage rules",
+    "full 540-0 Ma projection design",
+    "process formulas, tests, and scenario suite",
+    "BioGeoBEARS and plate-correction schemas",
+    "Case 1 result-reading guide",
+    "real-data input schema and stop rules",
+    "precomputed diagnostics and paper-writing templates",
+    "Case 3 geoprocess figures, tables, validation, ordered outputs and Word report",
+    "Case 4 active-lineage and ancestor-response results, with a strict uncertainty boundary",
+    "Case 5 formal geographic location and dispersal-conditioned lineage-support maps",
+    "Case 5 patch histories, candidate refugia and missing edge-posterior boundary",
+    "Case 6 BM/OU/EB response, palaeoenvironmental support and boundary diagnostics",
+    "Case 7 six patch-result functions with explicit evidence levels"
+  )
+)
+knitr::kable(roadmap, caption = "Numbered HmscEcoEvo vignette sequence.")
+```
+
+# Case Tutorials And Results
+
+The seven case articles are the canonical package tutorials and result readers:
+
+1. Case01: `v07_case01_full_simulated_results`.
+2. Case02: `v08_case02_realdata_template` (a strict template; it stops rather
+   than inventing a real-data result when required inputs are absent).
+3. Case03: `v10_case03_geoprocess_past_to_present`.
+4. Case04: `v11_case04_plant200_ancestral_suitability`.
+5. Case05: `v12_case05_global_dispersal_diversity`.
+6. Case06: `v14_case06_bm_ou_eb_plant200`.
+7. Case07: `v15_case07_patch_evidence_ladder`.
+
+`v13_case05_patch_history_results` is a companion Case05 result reader.
+
+Case04, Case05 and Case06 look for their local output directories through
+`HMSCECOEVO_CASE04_OUTPUT`, `HMSCECOEVO_CASE05_OUTPUT` and
+`HMSCEE_CASE06_OUTPUT`. When those variables
+are set, the rendered article contains the corresponding tables and maps; when
+they are not set, it remains a portable tutorial and reports the missing result
+directory explicitly.
+
+# Function Coverage Map
+
+The table below is a compact index. Detailed columns, formulas and warnings
+are repeated in the module vignettes where the functions are used.
+
+```{r function-map}
+function_map <- data.frame(
+  module = c(
+    "Six-process HmscEE core", "Object and extraction", "Seven diagnostics", "hmscHist compatibility",
+    "Deep-time inputs", "Projection combination", "Summaries",
+    "BioGeoBEARS", "Plate correction", "Geological processes",
+    "Legacy dynamic assembly", "Validation and reporting"
+  ),
+  functions = c(
+    "hee_core_process_catalog(); hee_function_catalog(); hee_environmental_filtering_ancestral_suitability(); hee_dispersal_time_ordered_pruning(); hee_biotic_filtering_effect(); hee_evolution_ancestral_response_direct(); hee_speciation_events(); hee_extinction_layers(); hee_result_refugia_candidates()",
+    "hmsc_ecoevo(); as_hmsc_ecoevo()",
+    "calc_niche_metrics(); plot_niche_summary(); calc_phylo_signal_metrics(); plot_phylo_signal(); calc_evo_transition_metrics(); plot_evo_transition(); calc_trait_mediation_metrics(); plot_trait_mediation(); calc_gamma_evolution_metrics(); plot_gamma_evolution(); calc_population_evolution_metrics(); plot_population_evolution(); calc_validation_metrics(); plot_validation_dashboard()",
+    "HmscEcoEvo_data(); hmscHist_data(); build_history_tables(); standardize_history_tables(); calc_history_indices(); as_hmsc_xdata(); as_hmsc_trdata(); as_hmsc_random(); hee_detect_leakage(); hee_tag_predictors()",
+    "hee_load_timecube(); hee_time_axis(); hee_time_axis_from_env_cube(); hee_assert_full_time_axis(); hee_lock_recipe(); hee_apply_recipe(); hee_project_hmsc_timecube(); hee_task_table(); hee_resume(); hee_make_tiles()",
+    "hee_phylo_time_mask(); hee_extrapolation_risk(); hee_extrapolation_weight(); hee_projection_formula(); hee_combine(); hee_combine_static(); hee_combine_projection_models(); hee_dynamic_filter()",
+    "hee_richness(); hee_area_summary(); hee_centroid_shift(); hee_turnover(); hee_refugia(); hee_cwm(); hee_phylo_diversity(); hee_uncertainty_budget()",
+    "hee_bgb_prepare(); hee_bgb_run_models(); hee_bgb_import(); hee_bgb_compare(); hee_bgb_lrt(); hee_bgb_bsm(); hee_bgb_accessibility()",
+    "hee_import_plate_points(); hee_reconstruct_points(); hee_extract_paleoenv_track(); hee_compare_plate_corrected()",
+    "hee_landscape_events(); hee_land_age(); hee_ecological_opportunity(); hee_structural_connectivity(); hee_functional_connectivity(); hee_climatic_connectivity(); hee_isolation_history(); hee_network_metrics(); hee_colonisation_pressure(); hee_rescue_effect(); hee_extinction_probability(); hee_extinction_layers(); hee_speciation_opportunity(); hee_allopatric_speciation_opportunity(); hee_founder_speciation_opportunity(); hee_insitu_speciation_opportunity(); hee_radiation_opportunity(); hee_update_species_pool(); hee_cradle_museum_grave(); hee_mechanism_attribution(); hee_limitation_map(); hee_prediction_reliability(); hee_geoprocess_scenario_suite(); plot_geoprocess_scenario_suite(); scripts/case03_geoprocess_past_to_present_simulated.R",
+    "hee_colonisation_probability(); hee_dynamic_assembly(); hee_dynamic_model_family(); hee_geoprocess_hypotheses(); hee_geoprocess_model_comparison()",
+    "hee_cv_random(); hee_cv_spatial_block(); hee_cv_environment_block(); hee_cv_leave_clade_out(); hee_evaluate_recovery(); hee_simulate_recovery(); hee_render_word_report(); hee_write_full_workflow_report(); hee_ordered_output_catalog(); hee_write_ordered_outputs(); hee_write_outputs()"
+  ),
+  primary_vignette = c("10-15", "01", "02", "03", "04", "04", "04",
+                       "06", "06", "05", "05", "09")
+)
+knitr::kable(function_map, caption = "Where the major functions are explained.")
+```
+
+# Standard Chapter Structure
+
+Each substantive vignette follows the same logic: scientific question, input
+data, function flow, formula, output tables, figure interpretation, scientific
+boundary, common errors, quick code, and full code. The quick code is designed
+for package checks. Long HMSC MCMC, full 540-0 Ma projection, external
+BioGeoBEARS fitting and plate reconstruction are shown with `eval = FALSE`.
+
+# What Reviewers Usually Ask
+
+1. Are HMSC outputs real fitted estimates? Answer: only when produced by
+   `Hmsc::Hmsc()` and `Hmsc::sampleMcmc()` or imported from a fitted HMSC
+   object.
+2. Are M1-M5 palaeo-distribution maps observed historical ranges? No. They are
+   nested scenario projections combining suitability, land, phylogenetic time,
+   historical accessibility, dispersal filters and extrapolation weights.
+3. Does the package know where plates were in the past? No. It consumes
+   external reconstructions from a user table, `rgplates`, `pygplates`, or an
+   equivalent workflow.
+4. Can history-derived site variables be projected to ancient cells? No.
+   Variables derived from present site x species composition are for modern
+   explanation and diagnostics; use `hee_detect_leakage()` before projection.

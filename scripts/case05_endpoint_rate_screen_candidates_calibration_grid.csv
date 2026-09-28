@@ -1,0 +1,8 @@
+candidate_id,movement_intercept,establishment_intercept,persistence_intercept,root_rho,local_dispersal_scale_km,establishment_slope,persistence_slope
+mid_a150_p000_r025,-0.50,-1.50,0.00,0.25,200,0.85,0.75
+mid_a150_p025_r025,-0.50,-1.50,0.25,0.25,200,0.85,0.75
+mid_a175_p025_r025,-0.50,-1.75,0.25,0.25,200,0.85,0.75
+mid_a200_p025_r025,-0.50,-2.00,0.25,0.25,200,0.85,0.75
+mid_a200_p050_r025,-0.50,-2.00,0.50,0.25,200,0.85,0.75
+mid_a200_p025_r035,-0.50,-2.00,0.25,0.35,200,0.85,0.75
+mid_a250_p050_r025,-0.50,-2.50,0.50,0.25,200,0.85,0.75

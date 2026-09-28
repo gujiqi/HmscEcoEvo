@@ -1,0 +1,2 @@
+record_id,species,age_min,age_max,paleo_lon,paleo_lat,region,coordinate_frame,coordinate_uncertainty_km,age_uncertainty_myr
+fossil_001,Species_name,99,101,25.4,-12.8,R1,palaeogeographic,20,1

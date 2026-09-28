@@ -1,0 +1,7 @@
+species,body_size,dispersal_trait,growth_form
+sp1,3.2,0.75,tree
+sp2,1.4,0.40,herb
+sp3,2.1,0.55,shrub
+sp4,3.8,0.30,tree
+sp5,1.7,0.65,herb
+sp6,2.9,0.50,shrub

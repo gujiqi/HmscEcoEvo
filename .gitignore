@@ -1,0 +1,17 @@
+# Local R sessions, package builds, and checks
+.Rhistory
+.RData
+.Rproj.user/
+*.Rcheck/
+*.tar.gz
+
+# Generated analyses and rendered documentation
+/outputs/
+/derived_inputs/
+/docs/
+/README_*.html
+
+# Large case inputs and generated results are kept outside the source repo
+/inst/extdata/deep_time_cases/outputs/
+/inst/extdata/deep_time_cases/**/*.rds
+/inst/extdata/ecoevo_cases/outputs/

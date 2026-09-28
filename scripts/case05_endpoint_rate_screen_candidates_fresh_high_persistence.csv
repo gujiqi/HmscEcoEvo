@@ -1,0 +1,5 @@
+candidate_id,movement_intercept,establishment_intercept,persistence_intercept,root_rho,local_dispersal_scale_km,establishment_slope,persistence_slope
+moderate_establishment_high_persistence,-0.5,0.5,1.5,0.25,200,0.85,0.75
+high_establishment_high_persistence,-0.5,1,1.5,0.25,200,0.85,0.75
+moderate_establishment_very_high_persistence,-0.5,0.5,2,0.25,200,0.85,0.75
+lower_movement_very_high_persistence,-1,1,2,0.25,200,0.85,0.75

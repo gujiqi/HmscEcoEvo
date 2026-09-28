@@ -1,0 +1,225 @@
+---
+title: "02. Seven Diagnostic Figures"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{02. Seven Diagnostic Figures}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+# Scientific Question
+
+The seven diagnostic figures answer different questions about the same HMSC
+output: where species respond to environments, where that response is
+phylogenetically structured, which advanced evolutionary results must be
+imported, how traits mediate Beta, whether Gamma changes among clades or
+regimes, whether population data support within-species evolution, and whether
+the full workflow is robust.
+
+# Input Data
+
+All figures start from `hmsc_ecoevo()`. Some panels require optional inputs:
+phylogeny, traits, posterior draws, population tables, time series, or
+precomputed comparative-model results. Missing optional inputs should produce a
+partial figure or an informative diagnostic, not a silent fake result.
+
+# Function Flow And Panel Logic
+
+```{r seven-table}
+seven <- data.frame(
+  figure = paste0("Figure ", 1:7),
+  function_pair = c(
+    "calc_niche_metrics() / plot_niche_summary()",
+    "calc_phylo_signal_metrics() / plot_phylo_signal()",
+    "calc_evo_transition_metrics() / plot_evo_transition()",
+    "calc_trait_mediation_metrics() / plot_trait_mediation()",
+    "calc_gamma_evolution_metrics() / plot_gamma_evolution()",
+    "calc_population_evolution_metrics() / plot_population_evolution()",
+    "calc_validation_metrics() / plot_validation_dashboard()"
+  ),
+  scientific_question = c(
+    "What is the multivariate niche position and uncertainty of each species?",
+    "Is Beta structured by shared ancestry, globally or locally?",
+    "Where do imported shifts, rates, expansion, convergence and integration appear?",
+    "How much of phylogenetic niche structure is described by measured traits/history?",
+    "Do trait-to-Beta relationships vary among clades or regimes?",
+    "Do populations show niche divergence, local adaptation, plasticity or feedback patterns?",
+    "How robust are posterior, tree, prior, validation and MCMC diagnostics?"
+  ),
+  external_precomputed = c(
+    "No for basic Beta summaries; posterior draws recommended",
+    "Optional for Abouheif, correlograms or alternative null models",
+    "Required for BM/OU/EB, bayou/SURFACE, branch/rate shifts, DTT, MDI and peak reuse",
+    "Optional model comparisons for R2 and omission sensitivity",
+    "Optional clade/regime Gamma estimates and shift probabilities",
+    "Required for real population genetic/time-series inference",
+    "Required for tree uncertainty, simulation recovery, block CV, PPC and MCMC diagnostics when not present"
+  )
+)
+knitr::kable(seven, caption = "The seven HmscEcoEvo diagnostic figures.")
+```
+
+# Formulas And Rules
+
+```{r formula-table}
+formulas <- data.frame(
+  module = c("Niche", "Phylogenetic signal", "Evolutionary transition",
+             "Trait mediation", "Gamma evolution", "Population evolution",
+             "Validation"),
+  core_formula_or_rule = c(
+    "posterior support = Pr(beta > 0); vector magnitude = sqrt(sum(beta_k^2)); PCA is descriptive geometry",
+    "rho, lambda, K, Cmean and Moran's I are signal summaries; local signal uses tip-level neighbourhood logic when available",
+    "imported P_shift, delta_theta, rate ratio, EB alpha, DTT, MDI and convergence are displayed, not invented",
+    "TMNS/HMNS/THMNS/HPNS partition reductions in residual phylogenetic signal across specified model sets",
+    "sign-flip index compares sign changes of Gamma among clades/regimes; turnover is variation in trait-function effects",
+    "LA:PL compares local-adaptation and plasticity components; GxE requires population x environment data",
+    "uncertainty propagation, CV, PPC, ESS and Rhat summarize reliability, not causal validity"
+  ),
+  common_misread = c(
+    "Calling response curves fundamental niches without experimental support",
+    "Treating phylogenetic signal as proof of adaptation",
+    "Interpreting descriptive outliers as branch-shift models",
+    "Treating trait mediation as causal mediation",
+    "Calling Gamma turnover a macroevolutionary rate without external model",
+    "Calling population Beta differences genetic adaptation without genetic data",
+    "Calling reliability score a credible interval"
+  )
+)
+knitr::kable(formulas, caption = "Core formulas, rules and common misreads.")
+```
+
+# Quick Code
+
+```{r quick-code}
+library(HmscEcoEvo)
+
+set.seed(2)
+beta <- matrix(
+  rnorm(12), nrow = 4,
+  dimnames = list(paste0("sp", 1:4), c("bio1", "bio12", "elev"))
+)
+traits <- data.frame(
+  body_size = 1:4,
+  dispersal = c(0.2, 0.4, 0.6, 0.8),
+  row.names = rownames(beta)
+)
+gamma <- matrix(
+  rnorm(6), nrow = 2,
+  dimnames = list(colnames(traits), colnames(beta))
+)
+population <- data.frame(
+  species = rep("sp1", 3),
+  population = paste0("pop", 1:3),
+  axis = "bio1",
+  beta = c(0.1, 0.3, 0.2)
+)
+evo <- hmsc_ecoevo(beta = beta, gamma = gamma, traits = traits,
+                   population = population)
+
+niche <- calc_niche_metrics(evo)
+phylo_signal <- calc_phylo_signal_metrics(evo)
+transition <- calc_evo_transition_metrics(evo)
+trait_med <- calc_trait_mediation_metrics(evo)
+gamma_evo <- calc_gamma_evolution_metrics(evo)
+pop_evo <- calc_population_evolution_metrics(evo)
+validation <- calc_validation_metrics(evo)
+
+vapply(list(niche, phylo_signal, transition, trait_med, gamma_evo,
+            pop_evo, validation), length, integer(1))
+```
+
+Plot calls are omitted from executable chunks because many panels require
+optional phylogenies, posterior draws or external precomputed tables. Use:
+
+```{r plot-code, eval=FALSE}
+fig1 <- plot_niche_summary(niche, style = "nature")
+fig2 <- plot_phylo_signal(phylo_signal, style = "nature")
+fig3 <- plot_evo_transition(transition, style = "nature")
+fig4 <- plot_trait_mediation(trait_med, style = "nature")
+fig5 <- plot_gamma_evolution(gamma_evo, style = "nature")
+fig6 <- plot_population_evolution(pop_evo, style = "nature")
+fig7 <- plot_validation_dashboard(validation, style = "nature")
+```
+
+# Figure 1: Niche Summary
+
+Inputs are Beta, optional Beta posterior draws, environmental axis names and
+optional clade labels. Read the heatmap as signed responses, the support panel
+as posterior sign support, the response curves as conditional predictions, and
+the PCA as geometry of species in Beta space. Niche optimum and breadth are
+descriptive summaries of fitted response shapes; they are not direct estimates
+of physiological tolerance unless the model and data justify that inference.
+
+# Figure 2: Phylogenetic Signal Localization
+
+Inputs are Beta and phylogeny, with optional precomputed signal tables. Global
+statistics summarize whether related species have similar Beta values. Local
+Moran or LIPA-style outputs highlight tips or nodes that contribute to signal.
+When a statistic is supplied without a null or posterior distribution, show it
+as a point estimate and state that significance was not calculated.
+
+# Figure 3: Evolutionary Transition And Diversification
+
+Branch shifts, rate shifts, adaptive regimes, convergence, DTT, MDI and EB
+parameters require external comparative analyses or user-supplied precomputed
+tables. HmscEcoEvo can display and combine them with HMSC Beta, but it should
+not infer bayou/SURFACE-like processes from Beta alone. Figure panels should
+distinguish imported estimates from descriptive Beta-distance summaries.
+
+# Figure 4: Trait Mediation And Hidden Traits
+
+Gamma describes how measured traits relate to species-specific environmental
+responses. Trait-explained R2, history-explained R2, combined R2, TMNS, HMNS,
+THMNS, HPNS, missing-trait risk, trait phylogenetic redundancy, omission
+sensitivity and residual Beta heatmaps are mediation diagnostics. They do not
+prove that traits caused niche evolution; they show whether measured traits and
+history absorb phylogenetic structure in Beta.
+
+# Figure 5: Trait-Function Evolution
+
+Clade-specific Gamma, regime-specific Gamma, Gamma-shift probability,
+sign-flip index, Gamma variance among clades, pairwise turnover, specialization
+and trait-function networks ask whether trait-to-response associations vary
+among clades or regimes. Regime assignment and shift probabilities should come
+from explicit external models or transparent user tables.
+
+# Figure 6: Population-Level Eco-Evolution
+
+Population Beta, within-species divergence, local adaptation, plasticity,
+LA:PL ratio, genetic niche signal, reaction norms, GxE, feedback paths,
+trait-evolution contribution and eco-evo turnover require population or
+time-series inputs. In simulated examples these are heuristic demonstrations.
+In real data, genetic and environmental sampling design controls interpretation.
+
+# Figure 7: Validation And Robustness
+
+Validation panels summarize posterior uncertainty propagation, tree
+uncertainty, trait omission sensitivity, spatial confounding, environmental
+omission, prior sensitivity, simulation recovery, block cross-validation,
+posterior predictive checks, ESS, Rhat and traces. These panels support
+robustness claims but do not convert proxy process layers into causal evidence.
+
+# Full Code
+
+```{r full-code, eval=FALSE}
+plots <- list(
+  niche = plot_niche_summary(calc_niche_metrics(evo), style = "nature"),
+  phylo = plot_phylo_signal(calc_phylo_signal_metrics(evo), style = "nature"),
+  transition = plot_evo_transition(calc_evo_transition_metrics(evo), style = "nature"),
+  mediation = plot_trait_mediation(calc_trait_mediation_metrics(evo), style = "nature"),
+  gamma = plot_gamma_evolution(calc_gamma_evolution_metrics(evo), style = "nature"),
+  population = plot_population_evolution(calc_population_evolution_metrics(evo), style = "nature"),
+  validation = plot_validation_dashboard(calc_validation_metrics(evo), style = "nature")
+)
+```
+
+# Reviewer Checklist
+
+Before publication, confirm that every plotted advanced process is either a
+real fitted estimate or explicitly labelled proxy, heuristic, mock, or
+precomputed external input. Use non-causal wording unless an independent
+identification design supports causal interpretation.

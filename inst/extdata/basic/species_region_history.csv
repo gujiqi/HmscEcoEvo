@@ -1,0 +1,16 @@
+species,region,entry_time,source_region,entry_prob,retained,loss_time
+sp1,A,80,C,0.90,1,
+sp1,B,35,A,0.50,1,
+sp1,C,50,A,0.30,0,28
+sp2,A,70,B,0.60,1,
+sp2,B,65,A,0.90,1,
+sp2,C,50,B,0.40,0,20
+sp3,A,40,B,0.50,0,15
+sp3,B,55,A,0.80,1,
+sp3,C,25,B,0.70,1,
+sp4,A,90,C,0.85,1,
+sp4,C,45,A,0.75,1,
+sp5,B,75,C,0.80,1,
+sp5,C,60,B,0.65,1,
+sp6,A,30,C,0.40,0,10
+sp6,C,70,A,0.90,1,

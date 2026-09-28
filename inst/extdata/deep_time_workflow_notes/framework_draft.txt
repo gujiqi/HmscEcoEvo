@@ -1,0 +1,597 @@
+hmscecoevo：基于 HMSC、历史生物地理、深时古环境与板块校正的深时潜在群落分布反演框架
+
+1. 方法定位
+
+hmscecoevo 不应被定义为“恢复真实过去分布”的工具，而应定义为：
+
+一个板块校正、系统发育约束、历史生物地理模型平均、HMSC 驱动的深时潜在群落分布与丰富度推断框架。
+
+其核心目标是利用当前群落分布、当前环境、物种性状、时间校准系统发育树、当前物种区域分布、深时古环境图层、古地理/陆海/古地形信息和板块运动校正结果，推断不同时期的：
+
+潜在物种出现概率；
+
+潜在物种丰富度；
+
+潜在群落组成；
+
+群落周转率；
+
+深时避难所或长期稳定区；
+
+谱系或功能性状层面的深时空间格局；
+
+预测不确定性和外推风险。
+
+该方法的基本思想是：HMSC 回答“过去哪里环境适合”，BioGeoBEARS 回答“过去这个谱系是否有历史机会到达”，系统发育树回答“这个物种或谱系当时是否已经存在”，板块重建回答“过去这个地方到底在哪里”。
+
+2. 核心公式
+
+hmscecoevo 的主模型可写为：
+
+P[j, c, t] =S_HMSC[j, c, t]× A_BGB[j, r(c,t), t]× E_phylo[j, t]× L_land[c, t]× D_dynamic[j, c, t]× Q_extrap[c, t]
+
+其中：
+
+P[j, c, t]：物种或谱系 j 在时间 t、像元 c 的最终潜在出现概率。S_HMSC[j, c, t]：HMSC 根据时间 t 的古环境预测出的环境适合度。A_BGB[j, r(c,t), t]：BioGeoBEARS 或其他历史生物地理模型给出的历史可达性。r(c,t) 表示时间 t 时像元 c 所属的古地理区域。E_phylo[j, t]：物种或谱系 j 在时间 t 是否已经存在。如果物种尚未起源，则为 0；若已经存在，则为 1 或概率值。L_land[c, t]：时间 t 时像元 c 是否为可用陆地或目标生态系统。海洋、冰盖、不适用古地理单元可设为 0。D_dynamic[j, c, t]：动态扩散过滤项。可选。表示物种不能瞬间占据所有适生区，而应受到上一时间片分布、扩散能力和地理屏障影响。Q_extrap[c, t]：外推风险项。可选。高 no-analog climate 区域可降权，也可只作为 warning flag 输出。
+
+期望丰富度定义为：
+
+Richness[c, t] = Σ_j P[j, c, t]
+
+如果是丰度模型，则可进一步输出：
+
+Expected abundance[c, t] = Σ_j μ[j, c, t]
+
+3. 数据体系
+
+hmscecoevo 应把数据分成九类，而不是混成一个大表。
+
+3.1 现代群落矩阵
+
+comm行 = site列 = species值 = presence/absence、count、abundance、cover 或 biomass
+
+最低字段：
+
+site_idspecies_idresponse
+
+主要用途：训练现代 HMSC 模型。
+
+关键处理：
+
+物种名统一；去除严重误定种；处理重复样点；识别稀有种；检查零膨胀；保留采样努力或检测协变量。
+
+3.2 现代环境数据
+
+env_now行 = site列 = climate、soil、topography、habitat 等变量
+
+关键要求：
+
+必须与 comm 的 site 完全对齐；连续变量标准化；分类变量水平固定；共线性检查；记录变量来源和单位。
+
+3.3 深时古环境时间立方体
+
+env_cube[time][variable][cell]
+
+推荐格式：
+
+terra SpatRasterNetCDFGeoTIFF stack
+
+关键要求：
+
+约 300 个时间点可以作为工程目标；不应默认理解为真实等间隔地质分辨率；近今可密，深时应稀；每个时间片必须有 age、变量名、空间参考、陆海掩膜和来源元数据。
+
+3.4 时间校准系统发育树
+
+tree
+
+可为：
+
+单棵最大可信树；posterior tree sample；含灭绝支系的 total-evidence tree。
+
+最低要求：
+
+tip labels 与 comm 列名一致；branch length 为时间单位；节点年龄单位统一为 Ma；记录树不确定性。
+
+3.5 物种性状矩阵
+
+traits行 = species列 = traits
+
+可包含：
+
+体型；扩散能力；生活史；繁殖方式；栖息地偏好；功能性状；耐受性状。
+
+性状用于 HMSC 的 species-level 参数共享，也可用于构造动态扩散过滤项。
+
+3.6 当前物种地理区域分布
+
+tip_ranges行 = species列 = region值 = 0/1 或概率
+
+这是 BioGeoBEARS 的基本输入之一。
+
+关键处理：
+
+定义生物地理区域；统一区域编码；用 GBIF、专家范围、IUCN、多边形或样点 occurrence 生成范围；区分真实缺失和未知。
+
+3.7 古地理区域与陆海掩膜
+
+region_cube[time]landmask_cube[time]paleotopo_cube[time]
+
+作用：
+
+告诉模型每个时间片哪里是陆地；每个像元属于哪个古地理区域；区域之间如何连通；海峡、陆桥、山脉、冰盖如何变化。
+
+3.8 板块运动对应点
+
+plate_points
+
+字段：
+
+site_idlon_presentlat_presentplate_idtime_malon_paleolat_paleoreconstruction_uncertainty
+
+作用：
+
+校正现代坐标与古坐标不一致的问题。
+
+3.9 古生物、孢粉、古 DNA 或化石验证表
+
+fossils
+
+字段：
+
+taxonranklonlatage_minage_maxevidence_typecertaintysource
+
+作用：
+
+不一定进入训练模型；优先作为独立验证；也可在高级版本中作为数据同化约束。
+
+4. 总体工作流
+
+hmscecoevo 应采用五层递进结构。
+
+第一层：现代 HMSC 校准层第二层：历史生物地理与谱系约束层第三层：深时古环境与板块校正层第四层：深时投影与动态过滤层第五层：验证、不确定性和软件输出层
+
+5. 第一层：现代 HMSC 校准层
+
+5.1 模型目标
+
+用现代群落数据估计：
+
+物种对环境的响应；性状如何调节环境响应；系统发育是否解释物种响应相似性；空间和采样设计如何影响现代群落结构；残差共变结构。
+
+5.2 基础 HMSC 模型
+
+presence-absence 数据推荐：
+
+m <- Hmsc::Hmsc(  Y = Y,  XData = X_now,  XFormula = ~ bio1 + bio12 + elev + habitat,  TrData = traits,  TrFormula = ~ body_size + dispersal + life_history,  phyloTree = phy,  distr = "probit")
+
+计数数据可用：
+
+lognormal PoissonPoissonhurdle extension, 如果单独扩展
+
+连续丰度可用：
+
+normal
+
+5.3 空间随机效应的处理原则
+
+现代预测中可使用空间随机效应：
+
+rL <- Hmsc::HmscRandomLevel(sData = xy)
+
+但深时投影默认不应直接使用现代空间残差。原因是空间随机效应可能吸收：
+
+现代未测量环境；采样偏差；现代土地利用；现代地貌；现代历史残留；现代扩散限制。
+
+这些不能直接搬到 50 Ma 或 100 Ma。
+
+因此包中应提供：
+
+projection_mode = "environment_only"projection_mode = "current_spatial"
+
+默认：
+
+projection_mode = "environment_only"
+
+6. 第二层：BioGeoBEARS 历史生物地理层
+
+这是 hmscecoevo 必须补强的核心模块。
+
+6.1 不应只跑一个 BioGeoBEARS 模型
+
+默认应跑六模型：
+
+DECDEC+JDIVALIKEDIVALIKE+JBAYAREALIKEBAYAREALIKE+J
+
+6.2 输出模型比较表
+
+modellogLikn_parametersdejAICAICcdelta_AICcAICc_weight
+
+6.3 LRT 检验
+
+只在嵌套模型之间做：
+
+DEC vs DEC+JDIVALIKE vs DIVALIKE+JBAYAREALIKE vs BAYAREALIKE+J
+
+输出：
+
+null_modelalternative_modelLRdfp_value
+
+6.4 +J 模型的谨慎处理
+
+包中应允许：
+
+allow_j = TRUEallow_j = FALSE
+
+并推荐同时报告：
+
+含 +J 的模型比较；不含 +J 的模型比较；+J 敏感性分析。
+
+6.5 模型平均历史可达性
+
+不要只用最佳模型，而应构造模型平均可达性：
+
+A_final[j, region, t] =Σ_m w_m × A_m[j, region, t]
+
+其中：
+
+w_m = 模型 m 的 AICc weightA_m = 模型 m 给出的区域概率或可达性
+
+这样历史生物地理模型不确定性会进入最终深时预测。
+
+6.6 Biogeographical Stochastic Mapping
+
+BSM 输出应转成事件表：
+
+simulation_idmodeltree_idtime_mabranch_or_nodeevent_typefrom_areato_areaancestor_rangedescendant_range
+
+事件类型包括：
+
+dispersallocal extinctionvicariancewithin-area speciationfounder-eventrange expansionrange contraction
+
+再汇总成：
+
+region_source_strength[region, time]region_sink_strength[region, time]dispersal_rate[from, to, time]extinction_rate[region, time]historical_turnover[region, time]lineage_accumulation[region, time]
+
+这些变量可用于解释深时丰富度变化，也可进入可达性模块。
+
+7. 第三层：谱系存在时间约束
+
+这是深时预测必须强制加入的部分。
+
+7.1 物种不能出现在其起源之前
+
+定义：
+
+E_phylo[j,t] = 0，如果 t 早于物种或谱系 j 的起源时间E_phylo[j,t] = 1，如果 t 晚于或等于 j 的起源时间
+
+时间单位通常为 Ma，数值越大表示越古老。
+
+例如：
+
+sp1 origin = 8 Mat = 50 Ma → sp1 尚未存在 → E = 0t = 2 Ma  → sp1 已经存在 → E = 1
+
+7.2 深时时间越深，越应从 species-level 转为 lineage-level
+
+推荐解释层级：
+
+0–2 Ma：species-level hindcasting 较合理。2–20 Ma：species-level 与 lineage-level 均可，但应谨慎解释。20–50 Ma：优先解释为 lineage-level 或 clade-level potential distribution。>50 Ma：若目标类群大多数现生物种尚未起源，应避免 species-level 解释，应转为 clade-level eco-evolutionary potential distribution。
+
+7.3 R 包函数
+
+hee_phylo_time_mask(  tree,  times,  species_origin = NULL,  lineage_table = NULL,  level = c("species", "lineage", "clade"))
+
+输出：
+
+species_or_lineage × time 的 0/1 或概率矩阵
+
+8. 第四层：深时古环境与板块校正层
+
+8.1 两种预测模式
+
+hmscecoevo 应明确区分两种模式。
+
+A. Paleo-map mode
+
+问题：
+
+某个时间片的古地球上，哪里潜在适合？哪里潜在丰富度高？
+
+流程：
+
+读取 time t 的古环境图层；读取 time t 的陆海掩膜；读取 time t 的古区域图层；对每个陆地像元预测 HMSC 环境适合度；叠加历史可达性与谱系存在约束；输出 time t 的潜在分布和丰富度地图。
+
+B. Tectonic-track mode
+
+问题：
+
+现代某个样点、区域或热点，随板块运动回到过去后经历了怎样的环境轨迹？潜在群落如何随时间变化？
+
+流程：
+
+现代点位赋 plate_id；回转到每个时间片的 paleo lon/lat；在对应时间片古环境图层上提取环境；预测该点沿时间轨迹的潜在群落；输出 richness-through-time、composition-through-time。
+
+8.2 板块校正流程
+
+每个时间片执行：
+
+1. 输入现代 lon/lat 或目标古格点；2. 赋 plate_id；3. 用 plate model 回转到 paleo lon/lat；4. 在 paleo frame 下抽取古环境；5. 叠加 land/sea mask、ice mask、shoreline uncertainty；6. 标记 plate boundary uncertainty；7. 生成 time-slice predictors。
+
+8.3 不应做的事情
+
+不要直接用现代经纬度去抽取深时古环境：
+
+错误：现代 lon/lat → 直接抽取 50 Ma 栅格正确：现代 lon/lat → 板块回转 → paleo lon/lat → 抽取 50 Ma 栅格
+
+9. 第五层：深时投影层
+
+9.1 HMSC 古环境投影
+
+对每个时间片：
+
+S <- hee_project_hmsc_timecube(  fit = fit,  env_cube = env_cube,  times = times,  variables = c("bio1", "bio12", "elev", "habitat"),  mode = "environment_only",  chunk_size = 5000)
+
+输出：
+
+S_HMSC[species, cell, time]
+
+9.2 合成最终概率
+
+P <- hee_combine(  suitability = S,  accessibility = A_BGB,  phylo_mask = E_phylo,  landmask = L_land,  dynamic_filter = D_dynamic,  extrapolation_weight = Q_extrap,  method = "multiply")
+
+9.3 输出丰富度
+
+rich <- hee_richness(P)
+
+即：
+
+Richness[c,t] = Σ_j P[j,c,t]
+
+应优先输出连续概率和期望丰富度，而不是先二值化再求和。
+
+10. 信息泄漏防控
+
+hmscecoevo 必须区分两类历史变量。
+
+10.1 可以用于深时新地点预测的变量
+
+这些变量不依赖待预测 cell 的未知群落组成：
+
+BioGeoBEARS ancestral range probability；BSM-derived source/sink strength；time-stratified dispersal accessibility；paleogeographic distance；land connectivity；species origin time mask；clade presence probability；region-level historical turnover；plate-corrected dispersal matrix。
+
+10.2 只能用于解释现代群落，不能直接用于深时预测的变量
+
+这些变量如果由当前 site 的物种组成反算，就不能用于新地点或古地点预测：
+
+site-level colonization age；site-level lineage retention；site-level source diversity；site-level in situ speciation proportion；site-level historical balance；任何需要先知道该 site 有哪些物种才能计算的指标。
+
+原因：
+
+预测古地点时，你本来不知道该地点有哪些物种。如果先用未知群落组成计算历史指标，再用该指标预测群落组成，就是信息泄漏。
+
+10.3 正确做法
+
+这些现代 site-level 历史指标可以用于：
+
+解释现代群落；检验现代群落是否带有历史信号；做模型比较；做机制讨论；做现代层诊断。
+
+但深时投影必须使用：
+
+region-level、species-level、lineage-level 或 time-specific 的外生历史变量。
+
+11. 动态扩散过滤层
+
+11.1 为什么需要动态过滤
+
+静态 hindcast 会假设：
+
+只要某个时间片环境适合，物种就可以立即出现。
+
+这不生态学。真实过程受限于：
+
+扩散能力；陆桥；海峡；山脉；上一时间片分布；灭绝滞后；殖入滞后。
+
+11.2 简化动态过滤
+
+定义：
+
+D_dynamic[j,c,t] =f(P[j,nearby_cells,t-1], dispersal_trait[j], barriers[t])
+
+实际实现可先做后处理：
+
+HMSC suitability→ land mask→ BioGeoBEARS accessibility→ dispersal kernel from previous time slice→ dynamic filtered probability
+
+11.3 R 包函数
+
+hee_dynamic_filter(  projection,  times,  dispersal_traits,  barrier_cube,  distance_kernel = "exponential",  max_distance = NULL)
+
+第一版可以作为可选模块，不应作为首发主模型。
+
+12. 外推风险诊断
+
+每个时间片必须计算：
+
+no-analog climate flag；environmental distance to modern training domain；MESS / MOP-like diagnostic；variable-wise extrapolation flag；combined extrapolation risk。
+
+函数：
+
+hee_extrapolation_risk(  env_now,  env_cube,  method = c("mahalanobis", "range", "pca", "mess"))
+
+输出：
+
+extrapolation_flag[c,t]extrapolation_score[c,t]
+
+深时预测主图必须配套显示外推风险图。
+
+13. 验证体系
+
+hmscecoevo 的验证必须分层，而不能只报告 AUC。
+
+13.1 现代随机 CV
+
+k-fold site CV
+
+用途：
+
+检查一般预测性能。
+
+13.2 空间块 CV
+
+spatial block CVleave-region-out
+
+用途：
+
+检查空间迁移能力，避免空间自相关导致过度乐观。
+
+13.3 环境块 CV
+
+沿 PCA 环境轴或主要气候梯度分块留出。
+
+用途：
+
+检查环境外推能力。
+
+13.4 谱系留一验证
+
+leave-one-clade-out
+
+用途：
+
+检查 traits/phylogeny 参数共享是否能泛化到未训练支系。
+
+13.5 伪时序验证
+
+如果有近过去记录：
+
+用现代模型投影到近过去；与孢粉、古 DNA、化石或历史记录比较。
+
+13.6 模拟回收实验
+
+构造已知真值：
+
+模拟现代群落；模拟过去分布；模拟板块运动；模拟可达性；让全流程反演；检查 bias、coverage、parameter recovery。
+
+这是证明方法可靠性的关键。
+
+14. 不确定性传播
+
+最终地图的不确定性应至少包括：
+
+HMSC posterior uncertainty；phylogenetic tree uncertainty；BioGeoBEARS model uncertainty；BSM stochastic uncertainty；paleoclimate model uncertainty；plate reconstruction uncertainty；extrapolation uncertainty；threshold uncertainty。
+
+建议输出：
+
+meansdq025q975coefficient of variationmodel agreementextrapolation flag
+
+如果计算量过大，不保留所有后验栅格，而采用 tile × time 在线累积摘要。
+
+15. 软件架构
+
+15.1 包结构
+
+hmscecoevo/├── DESCRIPTION├── NAMESPACE├── R/│   ├── class_data.R│   ├── prepare_data.R│   ├── fit_hmsc.R│   ├── project_hmsc_timecube.R│   ├── reconstruct_points.R│   ├── reconstruct_grid.R│   ├── paleo_regions.R│   ├── bgb_prepare.R│   ├── bgb_run_models.R│   ├── bgb_compare.R│   ├── bgb_lrt.R│   ├── bgb_bsm.R│   ├── bgb_accessibility.R│   ├── phylo_time_mask.R│   ├── combine_projection.R│   ├── dynamic_filter.R│   ├── richness.R│   ├── cwm.R│   ├── turnover.R│   ├── refugia.R│   ├── extrapolation.R│   ├── validation.R│   ├── uncertainty.R│   ├── write_rasters.R│   └── plot.R├── tests/testthat/├── vignettes/│   ├── 01_prepare_data.Rmd│   ├── 02_fit_hmsc.Rmd│   ├── 03_biogeobears.Rmd│   ├── 04_plate_correction.Rmd│   ├── 05_deep_time_projection.Rmd│   ├── 06_validation_uncertainty.Rmd│   └── 07_full_workflow.Rmd└── README.md
+
+15.2 依赖设计
+
+Imports：
+
+statsutilsMatrixterrasfabind
+
+Suggests：
+
+HmscapeBioGeoBEARSrgplatesreticulatearrowqstestthatknitrrmarkdown
+
+HMSC、BioGeoBEARS、rgplates 不建议全部强依赖。函数内部使用：
+
+if (!requireNamespace("Hmsc", quietly = TRUE)) {  stop("Package 'Hmsc' is required for this function.")}
+
+16. 推荐 API
+
+完整用户工作流应像这样：
+
+library(hmscecoevo)dat <- hee_prepare_data(  comm = comm,  sites = sites,  env_now = env_now,  env_cube = paleo_env_cube,  tree = phy,  traits = traits,  tip_ranges = tip_ranges,  region_cube = paleo_region_cube,  landmask_cube = paleo_landmask_cube,  plate_points = plate_points,  fossils = fossils)fit <- hee_fit_hmsc(  dat,  XFormula = ~ bio1 + bio12 + elev + habitat,  TrFormula = ~ body_size + dispersal + life_history,  distr = "probit",  spatial = TRUE)bgb <- hee_bgb_run_models(  tree = dat$tree,  tip_ranges = dat$tip_ranges,  models = "standard6",  max_range_size = 3,  allow_j = TRUE,  time_stratified = TRUE,  dispersal_matrices = paleo_D,  n_bsm = 100,  model_average = TRUE)A <- hee_bgb_accessibility(  bgb = bgb,  region_cube = dat$region_cube,  times = dat$times,  model_average = TRUE)E <- hee_phylo_time_mask(  tree = dat$tree,  times = dat$times,  level = "species_or_lineage")S <- hee_project_hmsc_timecube(  fit = fit,  env_cube = dat$env_cube,  times = dat$times,  mode = "environment_only",  chunk_size = 5000)P <- hee_combine(  suitability = S,  accessibility = A,  phylo_mask = E,  landmask = dat$landmask_cube,  method = "multiply")rich <- hee_richness(P)hee_write_rasters(  rich,  filename = "outputs/richness_{time}Ma.tif")hee_validate_modern(fit, method = "spatial_block")hee_extrapolation_risk(  env_now = dat$env_now,  env_cube = dat$env_cube)
+
+17. 输出产品
+
+每个物种、每个时间片输出：
+
+mean_probsd_probq025_probq975_probthresholded_presenceextrapolation_flagaccessibility_scoreland_maskplate_id
+
+群落层输出：
+
+expected_richnessrichness_sdrichness_q025richness_q975community_turnover_vs_presentcomposition_pca_axis1composition_pca_axis2centroid_shiftrefugia_score
+
+跨时间摘要输出：
+
+species_idtime_maoccupied_areamean_probabilitycentroid_loncentroid_latmean_elevationmean_temperaturerange_shift_distanceuncertainty_meanextrapolation_fraction
+
+18. 版本开发路线
+
+v0.1：稳妥版
+
+现代 HMSC；古环境 time cube 投影；陆地掩膜；概率图；期望丰富度图；外推风险图。
+
+v0.2：谱系约束版
+
+species origin mask；lineage-level prediction；clade-level output；tree uncertainty sensitivity。
+
+v0.3：BioGeoBEARS 版
+
+六模型 BioGeoBEARS；AICc；LRT；模型平均；祖先区域概率；accessibility array。
+
+v0.4：BSM 与历史事件版
+
+BSM event table；source/sink strength；regional turnover；lineage accumulation；历史事件驱动的可达性修正。
+
+v0.5：板块校正版
+
+rgplates / pygplates 接口；paleo-map mode；tectonic-track mode；plate uncertainty flag。
+
+v0.6：动态扩散版
+
+上一时间片约束；扩散核；barrier raster；动态 occupancy filter。
+
+v1.0：完整发表版
+
+HMSC + BioGeoBEARS + phylo mask + plate correction + validation + uncertainty；完整 vignettes；可复现实验；模拟回收；真实案例。
+
+19. 方法局限
+
+必须明确写入论文和包文档：
+
+输出是潜在分布，不是真实历史分布。
+
+深时越深，生态位保守性假设越弱。
+
+现代现生物种不能代表所有已灭绝谱系。
+
+如果没有化石或古生态数据，深时验证较弱。
+
+no-analog climate 区域的预测应谨慎解释。
+
+残差关联不能直接解释为生物相互作用。
+
+当前群落反算的 site-level 历史指标不能直接用于古地点预测。
+
+现代空间随机效应不应直接投影到深时。
+
+古环境、古地理、板块模型和系统树都有不确定性。
+
+深时 species-level 预测需要转化为 lineage-level 或 clade-level 解释。
+
+20. 核心创新
+
+hmscecoevo 的创新性可以概括为五点：
+
+从单物种 SDM hindcasting 扩展到联合物种分布模型驱动的群落 hindcasting。
+
+将 HMSC 的环境响应、性状层级和系统发育信息投影到深时古环境时间立方体。
+
+使用 BioGeoBEARS 的模型比较、模型平均和 BSM 事件构造历史可达性，而不是任意假设物种可达所有适生区域。
+
+引入板块运动校正，解决现代坐标与深时古坐标不一致的问题。
+
+同时输出物种概率、期望丰富度、群落周转、长期避难所、不确定性和外推风险。
+
+最终，hmscecoevo 应被定义为：
+
+一个把现代 HMSC 群落模型、系统发育时间约束、BioGeoBEARS 历史可达性、深时古环境时间立方体和板块重建结合起来的生态—演化—古地理联合推断框架。

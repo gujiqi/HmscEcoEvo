@@ -1,0 +1,34 @@
+template:
+  bootstrap: 5
+
+navbar:
+  structure:
+    left: [intro, reference, articles]
+    right: [search, github]
+
+articles:
+  - title: "Getting Started"
+    contents:
+      - v00_index_roadmap
+      - v01_basic_hmsc_ecoevo_workflow
+  - title: "HMSC Diagnostics"
+    contents:
+      - v02_seven_diagnostic_figures
+      - v03_history_to_hmsc
+  - title: "Deep-Time Projection"
+    contents:
+      - v04_deep_time_hindcasting_540Ma
+      - v07_case01_full_simulated_results
+      - v11_case04_plant200_ancestral_suitability
+  - title: "Geological Processes"
+    contents:
+      - v05_geological_processes_dynamic_assembly
+      - v10_case03_geoprocess_past_to_present
+  - title: "Real-Data Templates"
+    contents:
+      - v06_biogeography_plate_correction
+      - v08_case02_realdata_template
+  - title: "Advanced Methods And Reporting"
+    contents:
+      - v09_advanced_diagnostics_and_reporting
+      - v12_case05_global_dispersal_diversity

@@ -1,0 +1,750 @@
+---
+title: "08. Case 2 Real-Data 540-0 Ma Template: Step-by-Step Project Record"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{08. Case 2 Real-Data 540-0 Ma Template}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.width = 8,
+  fig.height = 5,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# 这篇 vignette 的定位
+
+这篇对应真实数据模板脚本：
+
+```text
+scripts/case02_realdata_full_540Ma_template.R
+```
+
+它的原则非常严格：**真实数据案例绝不能在缺文件时自动生成假数据**。如果
+`data_raw/comm.csv`、`data_raw/sites.csv` 等文件缺失，脚本必须立即停止，并给出
+类似下面的错误：
+
+```text
+stop("Missing required file: data_raw/comm.csv")
+```
+
+本 vignette 本身为了能在 R CMD check 中渲染，不会真的运行 full MCMC 或 full projection。
+它展示的是逐步真实代码模板：文件存在时这些代码可直接运行；文件不存在时，读者会看到
+明确的文件状态表，而不是 fake result。
+
+**解释边界。** Case 2 才是面向真实研究的模板。BioGeoBEARS、plate reconstruction、
+fossil validation、palaeoenvironmental cube 都应来自用户自己的外部数据或专业软件输出；
+不能把 Case 1 的 mock 结果替换成真实结果。
+
+```{r case02-helpers}
+project_path <- function(...) {
+  candidates <- c(file.path(...), file.path("..", ...))
+  exists <- file.exists(candidates) | dir.exists(candidates)
+  if (any(exists)) {
+    return(normalizePath(candidates[which(exists)[1]], winslash = "/", mustWork = FALSE))
+  }
+  normalizePath(candidates[1], winslash = "/", mustWork = FALSE)
+}
+
+case02_script <- project_path("scripts", "case02_realdata_full_540Ma_template.R")
+data_root <- project_path("data_raw")
+case02_output_candidates <- c(
+  Sys.getenv("HMSCECOEVO_CASE02_OUTPUT", unset = ""),
+  project_path("outputs", "case02_realdata_full_540Ma_template")
+)
+case02_output_candidates <- case02_output_candidates[nzchar(case02_output_candidates)]
+case02_output_root <- case02_output_candidates[dir.exists(case02_output_candidates)][1L]
+if (!length(case02_output_root) || is.na(case02_output_root)) {
+  case02_output_root <- project_path("outputs", "case02_realdata_full_540Ma_template")
+}
+
+required_files <- c(
+  "comm.csv",
+  "sites.csv",
+  "traits.csv",
+  "tree.tre",
+  "tip_ranges.csv",
+  "env_cube_index.csv",
+  "region_cube_index.csv",
+  "landmask_cube_index.csv",
+  "plate_points.csv",
+  "fossils.csv"
+)
+
+file_status <- data.frame(
+  file = file.path("data_raw", required_files),
+  exists = file.exists(file.path(data_root, required_files)),
+  path = normalizePath(file.path(data_root, required_files), winslash = "/", mustWork = FALSE),
+  stringsAsFactors = FALSE
+)
+
+schema_table <- data.frame(
+  file = c(
+    "comm.csv", "sites.csv", "traits.csv", "tree.tre", "tip_ranges.csv",
+    "env_cube_index.csv", "region_cube_index.csv", "landmask_cube_index.csv",
+    "plate_points.csv", "fossils.csv"
+  ),
+  required_columns = c(
+    "site_id plus one column per species; values occurrence/probability/count converted deliberately",
+    "site_id, lon, lat; optional block_id, region, sampling_effort",
+    "species plus numeric trait columns; optional trait units columns in metadata",
+    "Newick tree with tip labels matching species; branch lengths in Ma or convertible to Ma",
+    "species plus region columns or long species, region, presence/probability",
+    "time_ma, path/file/cube_path/rds_path; optional variable, unit, resolution, crs",
+    "time_ma, path/file/cube_path/rds_path; region layer must align to env grid",
+    "time_ma, path/file/cube_path/rds_path; landmask/geographic_existence aligned to env grid",
+    "site_id or point_id, lon, lat, time_ma, paleo_lon, paleo_lat; optional plate_id, reconstruction_source",
+    "species, time_ma, lon, lat or region, occurrence/probability; optional fossil_id, age_uncertainty"
+  ),
+  unit_or_range = c(
+    "Y usually 0/1 for probit HMSC; abundance requires explicit distribution",
+    "degrees WGS84 unless documented otherwise",
+    "trait units must be documented; missing values require imputation or explicit omission",
+    "Ma; time_ma larger values are older",
+    "[0,1] presence/probability by region",
+    "Ma; variables same names/units as 0 Ma XData",
+    "region identifiers stable through time",
+    "0/1 or [0,1]; NA treated as geographic absence in projection",
+    "degrees on reconstructed palaeogeography; depends on external reconstruction",
+    "Ma; independent validation data, not simulated unless explicitly pseudo-hindcast"
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(file_status, caption = "Case 2 required file status")
+knitr::kable(schema_table, caption = "Case 2 input schema and scientific meaning")
+```
+
+```{r case02-input-readiness-figure, fig.cap="Case02 real-data input readiness. Green means that a required project file is available; red means that the full empirical workflow must stop."}
+graphics::par(mar = c(9, 4, 2, 1))
+graphics::barplot(
+  as.integer(file_status$exists),
+  names.arg = basename(file_status$file),
+  las = 2,
+  ylim = c(0, 1.15),
+  col = ifelse(file_status$exists, "#2D7F5E", "#B23A3A"),
+  border = NA,
+  ylab = "Required file available (1 = yes)",
+  main = "Case02 empirical-input readiness"
+)
+graphics::abline(h = 1, lty = 2, col = "grey40")
+graphics::par(mar = c(5, 4, 4, 2) + 0.1)
+```
+
+This is an input-audit figure, not an ecological result. A red bar is the
+correct outcome for an incomplete project: the full script must stop rather
+than fabricate a substitute input or a result map.
+
+# 缺文件时必须停止的真实代码
+
+下面代码与脚本原则一致。它在 vignette 中不执行，是为了避免没有真实数据时失败；在真实项目中应执行。
+
+```{r case02-stop-on-missing, eval=FALSE}
+data_root <- "data_raw"
+required_files <- c(
+  "comm.csv", "sites.csv", "traits.csv", "tree.tre", "tip_ranges.csv",
+  "env_cube_index.csv", "region_cube_index.csv", "landmask_cube_index.csv",
+  "plate_points.csv", "fossils.csv"
+)
+
+for (nm in required_files) {
+  path <- file.path(data_root, nm)
+  if (!file.exists(path)) {
+    stop("Missing required file: ", file.path("data_raw", nm), call. = FALSE)
+  }
+}
+```
+
+# 逐步真实数据模板
+
+```{r case02-step-table}
+case02_steps <- data.frame(
+  step_id = sprintf("%02d", 1:24),
+  title = c(
+    "项目目录和真实数据原则",
+    "必需输入文件 schema",
+    "读取 comm.csv 并构建 Y",
+    "读取 sites.csv 并对齐样点",
+    "读取 traits.csv 并构建 TrData",
+    "读取 tree.tre 并构建 C",
+    "读取 tip_ranges.csv",
+    "读取 env_cube_index.csv 并确认 0 Ma 层",
+    "从 0 Ma 环境层抽取 XData",
+    "锁定 recipe 并检查 leakage",
+    "构建 studyDesign 和 ranLevels",
+    "构建 HMSC 四大矩阵图",
+    "调用 Hmsc::Hmsc",
+    "调用 Hmsc::sampleMcmc",
+    "提取 Beta/Gamma/Rho/Omega 和 hmsc_ecoevo",
+    "现代预测与 evaluateModelFit",
+    "随机、空间和环境 block CV",
+    "导入 BioGeoBEARS 或真实 BGB 表",
+    "谱系时间 mask",
+    "板块校正和古环境轨迹",
+    "化石和 pseudo-hindcast 验证",
+    "540-0 Ma 分块投影和 M1-M5",
+    "地学过程、动态组装和群落指标",
+    "结果、ordered outputs 和 Word 报告"
+  ),
+  scientific_question = c(
+    "真实研究是否明确区分真实输入、外部重建、proxy 和 heuristic？",
+    "每个文件是否有足够列支持完整流程？",
+    "群落矩阵是否能被 HMSC 识别，并且 site 与 species 名称可追踪？",
+    "现代坐标是否和 Y 的行顺序完全一致？",
+    "性状是否覆盖所有 species，额外物种是否不会错误广播？",
+    "树 tip 是否覆盖所有 species，branch length 是否有时间意义？",
+    "当前区域分布是否为历史可达性提供现代约束？",
+    "古环境 cube 是否覆盖 full time axis 且包含 0 Ma？",
+    "现代 XData 是否来自 0 Ma 环境层，而不是另一个不一致数据源？",
+    "recipe 是否锁定训练尺度，并阻止当前群落反算变量进入深时预测？",
+    "HMSC 的 studyDesign/ranLevels 是否与空间或样点层级一致？",
+    "HMSC 四大输入是否可视化，便于审稿人检查？",
+    "HMSC 模型是否真实构建而不是手写随机参数？",
+    "MCMC 是否真实采样，quick/full 参数是否分开？",
+    "后验诊断对象是否统一为 hmsc_ecoevo？",
+    "现代预测是否使用 computePredictedValues/predict 和 evaluateModelFit？",
+    "验证是否评估随机、空间和环境泛化能力？",
+    "真实 BGB 是否来自外部模型，mock 是否被禁止用于 Case 2 真结果？",
+    "species origin_ma 之前是否强制 probability = 0？",
+    "现代点是否经过外部 plate_points 或专业后端回转到古坐标？",
+    "古记录是否独立，缺少时是否明确跳过？",
+    "是否覆盖 540-0 Ma，并通过 task table 支持 resume？",
+    "地学过程是否作为 proxy/heuristic，动态占据是否遵守掩膜？",
+    "最终 Word 是否包含图、表、公式、限制和 session info？"
+  ),
+  output_expected = c(
+    "metadata; input file manifest",
+    "schema table",
+    "Y_matrix.csv; Y heatmap; prevalence; richness histogram",
+    "modern_sites.csv; site map",
+    "TrData_traits.csv; traits heatmap/PCA/missingness",
+    "phylogenetic_correlation_C.csv; tree plot; C heatmap; origin plot",
+    "tip_ranges.csv; tip range heatmap",
+    "env cube index; time axis table",
+    "XData_0Ma_from_env_cube.csv; environment maps; histograms",
+    "recipe.rds; leakage report",
+    "studyDesign.csv; ranLevels.rds",
+    "01-12 input figures",
+    "hmsc_model_initial.rds",
+    "hmsc_model_sampled.rds; trace/ESS/Rhat",
+    "hmsc_diagnostics.rds; seven diagnostic plot inputs",
+    "predicted values; model fit metrics; calibration",
+    "cv_performance.csv; CV maps/heatmaps",
+    "bgb_model_compare.csv; accessibility; BSM summaries",
+    "phylo_time_mask.csv; mask heatmap; valid species through time",
+    "paleo_plate_tracks.csv; corrected vs uncorrected comparisons",
+    "fossil_validation.csv; validation maps/histograms or explicit skip",
+    "projection task table; M1-M5 probability/richness/area/centroid",
+    "geoprocess tables; dynamic occupancy; turnover/refugia/CWM/PD",
+    "ordered_results; output inventory; hmscecoevo_full_540Ma_workflow.docx"
+  ),
+  interpretation_boundary = c(
+    rep("真实数据模板：缺少外部数据时应 stop 或明确 skip；不得自动生成 fake real-data result。", 24)
+  ),
+  stringsAsFactors = FALSE
+)
+
+knitr::kable(case02_steps, caption = "Case 2 real-data workflow step index")
+
+```
+
+# 逐步代码记录：每一步先看代码，再看输出
+
+下面的 24 个步骤不是伪代码，而是 Case 2 真实项目应使用的代码骨架。因为真实数据模板不能在缺文件时生成假结果，
+所以这些步骤以可复制代码块展示；实际运行时，必须先补齐 `data_raw/` 中的真实文件。
+
+```{r case02-stepwise-code-record, results='asis'}
+r_string <- function(x) paste0("\"", gsub("([\"\\\\])", "\\\\\\1", x), "\"")
+emit_code <- function(lines) cat("```r\n", paste(lines, collapse = "\n"), "\n```\n\n", sep = "")
+
+case02_step_code <- list(
+  "01" = c("library(HmscEcoEvo)", "data_root <- \"data_raw\"", "case02_output_root <- \"outputs/case02_realdata_full_540Ma_template\"", "quick <- FALSE", "projection_mode <- \"environment_only\""),
+  "02" = c("required_files <- c(\"comm.csv\", \"sites.csv\", \"traits.csv\", \"tree.tre\", \"tip_ranges.csv\", \"env_cube_index.csv\", \"region_cube_index.csv\", \"landmask_cube_index.csv\", \"plate_points.csv\", \"fossils.csv\")", "for (nm in required_files) {", "  path <- file.path(data_root, nm)", "  if (!file.exists(path)) stop(\"Missing required file: \", file.path(\"data_raw\", nm), call. = FALSE)", "}"),
+  "03" = c("comm <- utils::read.csv(file.path(data_root, \"comm.csv\"), check.names = FALSE)", "stopifnot(\"site_id\" %in% names(comm))", "rownames(comm) <- comm$site_id", "comm$site_id <- NULL", "Y <- as.matrix(comm)", "storage.mode(Y) <- \"numeric\""),
+  "04" = c("sites <- utils::read.csv(file.path(data_root, \"sites.csv\"), check.names = FALSE)", "stopifnot(all(c(\"site_id\", \"lon\", \"lat\") %in% names(sites)))", "rownames(sites) <- sites$site_id", "missing_sites <- setdiff(rownames(Y), rownames(sites))", "if (length(missing_sites)) stop(\"sites.csv is missing site_id: \", paste(missing_sites, collapse = \", \"))", "sites <- sites[rownames(Y), , drop = FALSE]"),
+  "05" = c("traits <- utils::read.csv(file.path(data_root, \"traits.csv\"), check.names = FALSE)", "stopifnot(\"species\" %in% names(traits))", "rownames(traits) <- traits$species", "traits$species <- NULL", "species <- colnames(Y)", "missing_traits <- setdiff(species, rownames(traits))", "if (length(missing_traits)) stop(\"traits.csv is missing species: \", paste(missing_traits, collapse = \", \"))", "TrData <- traits[species, , drop = FALSE]"),
+  "06" = c("phy <- ape::read.tree(file.path(data_root, \"tree.tre\"))", "missing_tips <- setdiff(species, phy$tip.label)", "if (length(missing_tips)) stop(\"tree.tre is missing species: \", paste(missing_tips, collapse = \", \"))", "phy <- ape::keep.tip(phy, species)", "C <- ape::vcv(phy, corr = TRUE)", "C <- C[species, species]"),
+  "07" = c("tip_ranges <- utils::read.csv(file.path(data_root, \"tip_ranges.csv\"), check.names = FALSE)", "stopifnot(\"species\" %in% names(tip_ranges))", "tip_ranges <- tip_ranges[match(species, tip_ranges$species), , drop = FALSE]", "if (any(is.na(tip_ranges$species))) stop(\"tip_ranges.csv does not cover all species.\")"),
+  "08" = c("env_index <- utils::read.csv(file.path(data_root, \"env_cube_index.csv\"), check.names = FALSE)", "stopifnot(all(c(\"time_ma\", \"path\") %in% names(env_index)))", "env_path <- env_index$path[env_index$time_ma == 0][1]", "if (is.na(env_path) || !file.exists(env_path)) stop(\"env_cube_index.csv must point to a valid 0 Ma environment layer.\")", "env_cube <- hee_load_timecube(env_path)", "times <- hee_time_axis_from_env_cube(env_cube)", "hee_assert_full_time_axis(times, quick = FALSE, min_time_slices = 100)"),
+  "09" = c("env_variables <- setdiff(env_cube$variables, c(\"landmask\", \"land_mask_dem\", \"region\"))", "grid0 <- hee_make_paleo_grid(env_cube, times = 0, variables = env_variables, land_only = FALSE)", "nearest_cell <- vapply(seq_len(nrow(sites)), function(i) {", "  which.min((grid0$lon - sites$lon[i])^2 + (grid0$lat - sites$lat[i])^2)", "}, integer(1))", "XData_raw <- grid0[nearest_cell, env_variables, drop = FALSE]", "rownames(XData_raw) <- rownames(sites)"),
+  "10" = c("XFormula <- stats::as.formula(paste(\"~\", paste(env_variables, collapse = \" + \")))", "recipe <- hee_lock_recipe(XData_raw, XFormula)", "XData <- hee_apply_recipe(recipe, XData_raw)", "predictor_roles <- hee_tag_predictors(names(XData), roles = c(colonization_age = \"current_community_derived\", lineage_retention = \"current_community_derived\", source_diversity = \"current_community_derived\", in_situ_speciation_prop = \"current_community_derived\"))", "hee_detect_leakage(XFormula, predictor_roles, task = \"deep_time_projection\")"),
+  "11" = c("studyDesign <- data.frame(site = factor(rownames(Y)))", "rownames(studyDesign) <- rownames(Y)", "ranLevels <- list(site = Hmsc::HmscRandomLevel(units = studyDesign$site))"),
+  "12" = c("input_object <- hee_prepare_data(Y, env_now = XData, env_cube = env_cube, tree = phy, traits = TrData, tip_ranges = tip_ranges)", "dir.create(file.path(case02_output_root, \"figures\"), recursive = TRUE, showWarnings = FALSE)", "# The case script saves Y/XData/TrData/tree/C figures with ggplot2 and ape."),
+  "13" = c("TrFormula <- stats::as.formula(paste(\"~\", paste(colnames(TrData), collapse = \" + \")))", "m <- Hmsc::Hmsc(Y = Y, XData = XData, XFormula = XFormula, TrData = TrData, TrFormula = TrFormula, phyloTree = phy, distr = \"probit\", studyDesign = studyDesign, ranLevels = ranLevels)"),
+  "14" = c("if (quick) { samples <- 50; transient <- 50; thin <- 1; nChains <- 2 } else { samples <- 1000; transient <- 1000; thin <- 10; nChains <- 4 }", "m <- Hmsc::sampleMcmc(m, samples = samples, transient = transient, thin = thin, nChains = nChains, nParallel = min(nChains, parallel::detectCores()), verbose = TRUE)"),
+  "15" = c("diag <- hee_hmsc_diagnostics(m)", "evo <- hmsc_ecoevo(model = m, traits = TrData, phylo = phy)", "niche <- calc_niche_metrics(evo)", "phylo_metrics <- calc_phylo_signal_metrics(evo)", "validation_metrics <- calc_validation_metrics(evo)"),
+  "16" = c("pred_modern <- Hmsc::computePredictedValues(m)", "MF <- Hmsc::evaluateModelFit(hM = m, predY = pred_modern)", "utils::write.csv(as.data.frame(MF), file.path(case02_output_root, \"tables\", \"hmsc_modern_fit.csv\"), row.names = FALSE)"),
+  "17" = c("cv_random <- hee_cv_random(nrow(Y), k = 5, seed = 1)", "cv_spatial <- hee_cv_spatial_block(sites[, c(\"lon\", \"lat\"), drop = FALSE], k = 5)", "cv_environment <- hee_cv_environment_block(XData, k = 5)"),
+  "18" = c("static_dispersal_file <- file.path(data_root, \"static_dispersal.csv\")", "dynamic_dispersal_file <- file.path(data_root, \"dynamic_dispersal.csv\")", "if (!file.exists(static_dispersal_file) || !file.exists(dynamic_dispersal_file)) stop(\"Real-data workflow requires precomputed dispersal filters for M4/M5.\", call. = FALSE)", "bgb_models <- utils::read.csv(file.path(data_root, \"bgb_model_compare.csv\"), check.names = FALSE)", "bgb_accessibility <- utils::read.csv(file.path(data_root, \"bgb_accessibility.csv\"), check.names = FALSE)", "bgb_events <- utils::read.csv(file.path(data_root, \"bgb_bsm_events.csv\"), check.names = FALSE)", "static_filter <- utils::read.csv(static_dispersal_file, check.names = FALSE)", "dynamic_filter <- utils::read.csv(dynamic_dispersal_file, check.names = FALSE)", "bgb_imported <- hee_bgb_import(models = bgb_models, accessibility = bgb_accessibility, events = bgb_events)", "bgb_compare <- hee_bgb_compare(bgb_imported$models, n = nrow(tip_ranges))", "A_BGB <- hee_bgb_accessibility(bgb_imported$accessibility)"),
+  "19" = c("species_origin <- if (\"origin_ma\" %in% names(TrData)) data.frame(species = rownames(TrData), origin_ma = TrData$origin_ma) else utils::read.csv(file.path(data_root, \"species_origin.csv\"), check.names = FALSE)", "E_phylo <- hee_phylo_time_mask(phy, times = times, species_origin = species_origin, species = species, level = \"species_or_lineage\")"),
+  "20" = c("plate_table <- utils::read.csv(file.path(data_root, \"plate_points.csv\"), check.names = FALSE)", "plate_points <- hee_import_plate_points(plate_table)", "paleo_points <- hee_reconstruct_points(sites, precomputed = plate_points, backend = \"user_table\")", "paleo_tracks <- hee_extract_paleoenv_track(paleo_points, env_cube, variables = env_variables, land_only = FALSE)"),
+  "21" = c("fossils <- utils::read.csv(file.path(data_root, \"fossils.csv\"), check.names = FALSE)", "if (!exists(\"combined\")) stop(\"Run Step 22 deep-time projection before fossil validation.\", call. = FALSE)", "fossil_validation <- hee_validate_fossils(fossils, combined, threshold = 0.5)"),
+  "22" = c("landmask_index <- utils::read.csv(file.path(data_root, \"landmask_cube_index.csv\"), check.names = FALSE)", "landmask_cube <- hee_load_timecube(landmask_index$path[landmask_index$time_ma == 0][1])", "landmask <- hee_make_paleo_grid(landmask_cube, times = times, variables = \"land_mask_dem\", land_only = FALSE)", "extrap <- hee_extrapolation_risk(env_now = XData, env_cube = env_cube, method = c(\"range\", \"mahalanobis\", \"pca\", \"mess\"))", "Q_extrap <- hee_extrapolation_weight(extrap, mode = \"flag\")", "suit <- hee_project_hmsc_timecube(beta = evo$beta, env_cube = env_cube, recipe = recipe, times = times, variables = env_variables, land_only = FALSE)", "tiles <- hee_make_tiles(suit, tile_size = 5000, id_col = \"cell_id\")", "task_grid <- expand.grid(time_ma = sort(unique(suit$time_ma), decreasing = TRUE), model_id = hee_projection_formula()$model_id)", "tasks <- cbind(hee_task_table(paste(task_grid$time_ma, task_grid$model_id, sep = \"_\")), task_grid)", "combined <- hee_combine_projection_models(suit, accessibility = A_BGB, phylo_mask = E_phylo, landmask = landmask, static_filter = static_filter, dynamic_filter = dynamic_filter, extrapolation_weight = Q_extrap, strict = TRUE)"),
+  "23" = c("richness <- hee_richness(combined)", "area <- hee_area_summary(combined, value = \"probability\", group_cols = c(\"model_id\", \"time_ma\"))", "turnover <- hee_turnover(combined)", "refugia <- hee_refugia(richness)", "prob0 <- subset(combined, model_id == \"M5_env_phylo_bgb_dynamic_dispersal\" & time_ma == 0)", "comm0 <- stats::xtabs(probability ~ cell_id + species, prob0)", "cwm <- hee_cwm(comm0, TrData)", "pd <- hee_phylo_diversity(comm0, tree = phy)", "geoprocess <- hee_geoprocess_scenario_suite(times = times)"),
+  "24" = c("hee_write_outputs(list(richness = richness, area = area, turnover = turnover, refugia = refugia), dir = file.path(case02_output_root, \"tables\"))", "hee_write_ordered_outputs(case02_output_root, include_rds = TRUE, overwrite = TRUE)", "hee_write_full_workflow_report(case02_output_root, output_file = file.path(case02_output_root, \"reports\", \"hmscecoevo_full_540Ma_workflow.docx\"), include_all_figures = TRUE, max_table_rows = 8)")
+)
+
+case02_step_explain <- c(
+  "01" = "建立项目根目录、输出目录和 projection_mode；深时默认 environment_only，避免把现代空间随机效应外推到古时间。",
+  "02" = "逐一检查真实输入文件；缺任何一个必要文件就 stop，保证 Case 2 不会把模拟数据伪装成真实研究。",
+  "03" = "把 comm.csv 转成 HMSC 所需的 site x species 数值矩阵 Y。",
+  "04" = "读取现代样点经纬度并按 Y 的行顺序重排，保证 XData 和 Y 一一对应。",
+  "05" = "读取性状矩阵并按 Y 的物种列顺序重排；额外物种不扩展，缺失物种报错。",
+  "06" = "读取时间校准树，裁剪到研究物种，并用 ape::vcv 得到系统发育相关矩阵 C。",
+  "07" = "读取当前区域分布，用于历史可达性或 BioGeoBEARS 输入；它不是深时概率本身。",
+  "08" = "读取古环境索引并检查 0 Ma 和完整时间轴；time_ma 数值越大越古老。",
+  "09" = "从 0 Ma 环境层抽取现代 XData，保证训练变量与古环境投影变量同名、同单位、同尺度。",
+  "10" = "锁定 recipe 后，所有古环境层都用同一转换；同时检查当前群落反算变量不能进入深时投影。",
+  "11" = "构建 HMSC 的 studyDesign 和随机层级。",
+  "12" = "生成四大矩阵输入图，供审稿人检查 Y、XData、TrData、tree/C 是否合理。",
+  "13" = "真实调用 Hmsc::Hmsc 构建模型，不手写随机 beta/gamma。",
+  "14" = "真实调用 Hmsc::sampleMcmc；quick 只调试，论文推断需要 full MCMC 和收敛诊断。",
+  "15" = "整理后验为 hmsc_ecoevo 并计算生态进化诊断指标。",
+  "16" = "使用 HMSC 的现代预测和 evaluateModelFit，不用随机数伪造预测。",
+  "17" = "构建随机、空间和环境 CV fold，这些 fold 后续进入模型评估。",
+  "18" = "真实研究必须导入外部 BioGeoBEARS 结果；Case 2 不允许 mock。",
+  "19" = "用 origin_ma 建立 E_phylo；起源之前 species probability 必须为 0。",
+  "20" = "板块校正依赖外部重建的 paleo_lon/paleo_lat，包不会凭现代经纬度猜过去位置。",
+  "21" = "化石验证在 projection 后做，比较化石年龄窗和空间附近的 predicted probability。",
+  "22" = "先投影 S_HMSC，再与 land、E_phylo、A_BGB、D_static、D_dynamic、Q_extrap 组合 M1-M5。",
+  "23" = "从 combined probability 计算 richness、area、turnover、refugia、CWM、PD 和地学过程情景。",
+  "24" = "把表、图、ordered_results 和 Word 报告写到明确目录，形成可复现审计链。"
+)
+
+show_case02_step <- function(step_id) {
+  row <- case02_steps[case02_steps$step_id == step_id, , drop = FALSE]
+  cat("\n\n## ", row$step_id, ". ", row$title, "\n\n", sep = "")
+  cat("**科学问题：** ", row$scientific_question, "\n\n", sep = "")
+  cat("**本步骤真实代码：**\n\n")
+  emit_code(case02_step_code[[step_id]])
+  cat("**代码是什么意思：** ", case02_step_explain[[step_id]], "\n\n", sep = "")
+  cat("**预期输出：** ", row$output_expected, "\n\n", sep = "")
+  cat("**解释边界：** ", row$interpretation_boundary, "\n\n", sep = "")
+  next_idx <- match(step_id, case02_steps$step_id) + 1L
+  if (next_idx <= nrow(case02_steps)) {
+    cat("**下一步逻辑：** 完成本步后进入 `", case02_steps$step_id[next_idx], ". ", case02_steps$title[next_idx], "`。\n\n", sep = "")
+  } else {
+    cat("**下一步逻辑：** 模板流程结束，进入结果审查和论文解释。\n\n")
+  }
+}
+
+for (sid in case02_steps$step_id) show_case02_step(sid)
+```
+
+## 01-02. 文件检查和 schema
+
+```{r case02-check-files-runnable}
+knitr::kable(file_status, caption = "Runnable check: which required real-data files exist now?")
+missing_now <- file_status$file[!file_status$exists]
+if (length(missing_now)) {
+  knitr::kable(
+    data.frame(
+      missing_file = missing_now,
+      behavior_in_script = paste0("stop(\"Missing required file: ", missing_now, "\")")
+    ),
+    caption = "The real-data script must stop for these missing files"
+  )
+}
+```
+
+**怎么解读。** 如果这里有 `exists = FALSE`，说明当前机器还没有完整真实数据。
+脚本应停止，而不是自动模拟。真实论文中必须说明这些数据的来源、时间单位、空间分辨率、
+坐标参考系和许可证。
+
+## 03-07. 构建 HMSC 四大矩阵的真实代码
+
+```{r case02-four-matrices-code, eval=FALSE}
+library(HmscEcoEvo)
+library(ape)
+
+data_root <- "data_raw"
+comm <- utils::read.csv(file.path(data_root, "comm.csv"), check.names = FALSE)
+sites <- utils::read.csv(file.path(data_root, "sites.csv"), check.names = FALSE)
+traits <- utils::read.csv(file.path(data_root, "traits.csv"), check.names = FALSE)
+phy <- ape::read.tree(file.path(data_root, "tree.tre"))
+tip_ranges <- utils::read.csv(file.path(data_root, "tip_ranges.csv"), check.names = FALSE)
+
+stopifnot("site_id" %in% names(comm))
+rownames(comm) <- comm$site_id
+comm$site_id <- NULL
+Y <- as.matrix(comm)
+storage.mode(Y) <- "numeric"
+
+stopifnot(all(c("site_id", "lon", "lat") %in% names(sites)))
+rownames(sites) <- sites$site_id
+sites <- sites[rownames(Y), , drop = FALSE]
+
+stopifnot("species" %in% names(traits))
+rownames(traits) <- traits$species
+traits$species <- NULL
+species <- colnames(Y)
+missing_traits <- setdiff(species, rownames(traits))
+if (length(missing_traits)) {
+  stop("traits.csv is missing species: ", paste(missing_traits, collapse = ", "))
+}
+TrData <- traits[species, , drop = FALSE]
+
+missing_tips <- setdiff(species, phy$tip.label)
+if (length(missing_tips)) {
+  stop("tree.tre is missing species: ", paste(missing_tips, collapse = ", "))
+}
+phy <- ape::keep.tip(phy, species)
+C <- ape::vcv(phy, corr = TRUE)
+C <- C[species, species]
+```
+
+**怎么解读。** 这里得到 HMSC 四大输入中的 `Y`、`TrData`、`phy` 和 `C`。
+真实分析必须保证行名/列名严格对齐。不能把 traits 表里额外物种展开到没有观测的 species；
+不能把 tree 中缺失物种静默删除后继续解释完整群落。
+
+## 08-10. 0 Ma 环境抽取、recipe 和 leakage 检查
+
+```{r case02-environment-recipe-code, eval=FALSE}
+env_index <- utils::read.csv(file.path(data_root, "env_cube_index.csv"), check.names = FALSE)
+env_path <- env_index$path[env_index$time_ma == 0][1]
+if (is.na(env_path) || !file.exists(env_path)) {
+  stop("env_cube_index.csv must point to a valid 0 Ma environment layer.")
+}
+
+env_cube <- hee_load_timecube(env_path)
+times <- hee_time_axis_from_env_cube(env_cube)
+hee_assert_full_time_axis(times, quick = FALSE, min_time_slices = 100)
+
+env_variables <- setdiff(env_cube$variables, c("landmask", "land_mask_dem", "region"))
+grid0 <- hee_make_paleo_grid(
+  env_cube = env_cube,
+  times = 0,
+  variables = env_variables,
+  land_only = FALSE
+)
+nearest_cell <- vapply(seq_len(nrow(sites)), function(i) {
+  which.min((grid0$lon - sites$lon[i])^2 + (grid0$lat - sites$lat[i])^2)
+}, integer(1))
+XData_raw <- grid0[nearest_cell, env_variables, drop = FALSE]
+rownames(XData_raw) <- rownames(sites)
+XFormula <- stats::as.formula(paste("~", paste(env_variables, collapse = " + ")))
+recipe <- hee_lock_recipe(XData_raw, XFormula)
+XData <- hee_apply_recipe(recipe, XData_raw)
+
+predictor_roles <- hee_tag_predictors(
+  names(XData),
+  roles = c(
+    colonization_age = "current_community_derived",
+    lineage_retention = "current_community_derived",
+    source_diversity = "current_community_derived",
+    in_situ_speciation_prop = "current_community_derived",
+    current_composition_history = "current_community_derived"
+  )
+)
+hee_detect_leakage(XFormula, predictor_roles, task = "deep_time_projection")
+```
+
+**怎么解读。** HMSC 训练用的现代环境必须来自 0 Ma 环境层，且古环境投影必须使用同一个
+recipe。不能在每个古时间片重新 scale，否则 540 Ma 的“高温/低温”会被改写成相对古环境本身的
+局部标准差，破坏现代-古环境可比性。
+
+## 11-16. HMSC 构建、MCMC、后验和现代验证
+
+```{r case02-hmsc-code, eval=FALSE}
+library(Hmsc)
+
+studyDesign <- data.frame(sample = factor(rownames(Y)))
+rownames(studyDesign) <- rownames(Y)
+ranLevels <- list(sample = Hmsc::HmscRandomLevel(units = studyDesign$sample))
+TrFormula <- stats::as.formula(paste("~", paste(colnames(TrData), collapse = " + ")))
+
+if (quick) {
+  samples <- 50
+  transient <- 50
+  thin <- 1
+  nChains <- 2
+} else {
+  samples <- 1000
+  transient <- 1000
+  thin <- 10
+  nChains <- 4
+}
+
+m <- Hmsc::Hmsc(
+  Y = Y,
+  XData = XData,
+  XFormula = XFormula,
+  TrData = TrData,
+  TrFormula = TrFormula,
+  phyloTree = phy,
+  distr = "probit",
+  studyDesign = studyDesign,
+  ranLevels = ranLevels
+)
+
+m <- Hmsc::sampleMcmc(
+  m,
+  samples = samples,
+  transient = transient,
+  thin = thin,
+  nChains = nChains,
+  nParallel = min(nChains, parallel::detectCores()),
+  verbose = TRUE
+)
+
+pred_modern <- Hmsc::computePredictedValues(m)
+MF <- Hmsc::evaluateModelFit(hM = m, predY = pred_modern)
+
+evo <- hmsc_ecoevo(
+  model = m,
+  traits = TrData,
+  phylo = phy
+)
+
+beta_plot <- plot_niche_summary(evo)
+gamma_plot <- plot_gamma_evolution(evo)
+phylo_plot <- plot_phylo_signal(evo)
+validation_plot <- plot_validation_dashboard(evo)
+```
+
+**怎么解读。** 这一段是真实 HMSC 调用。`quick=TRUE` 只用于管线调试；
+论文结果应使用充分 MCMC 设置并报告 ESS/Rhat/trace。后验图可以解释统计关联和不确定性，
+但不能单独证明因果过程。
+
+## 17-21. CV、BioGeoBEARS、phylo mask、plate correction 和 fossils
+
+```{r case02-bgb-plate-validation-code, eval=FALSE}
+cv_random <- hee_cv_random(nrow(Y), k = 5, seed = 1)
+cv_spatial <- hee_cv_spatial_block(sites[, c("lon", "lat"), drop = FALSE], k = 5)
+cv_environment <- hee_cv_environment_block(XData, k = 5)
+
+static_dispersal_file <- file.path(data_root, "static_dispersal.csv")
+dynamic_dispersal_file <- file.path(data_root, "dynamic_dispersal.csv")
+if (!file.exists(static_dispersal_file) || !file.exists(dynamic_dispersal_file)) {
+  stop("Real-data workflow requires precomputed dispersal filters for M4/M5.",
+       call. = FALSE)
+}
+bgb_models <- utils::read.csv(file.path(data_root, "bgb_model_compare.csv"), check.names = FALSE)
+bgb_accessibility <- utils::read.csv(file.path(data_root, "bgb_accessibility.csv"), check.names = FALSE)
+bgb_events <- utils::read.csv(file.path(data_root, "bgb_bsm_events.csv"), check.names = FALSE)
+static_filter <- utils::read.csv(static_dispersal_file, check.names = FALSE)
+dynamic_filter <- utils::read.csv(dynamic_dispersal_file, check.names = FALSE)
+bgb_imported <- hee_bgb_import(
+  models = bgb_models,
+  accessibility = bgb_accessibility,
+  events = bgb_events
+)
+bgb_compare <- hee_bgb_compare(bgb_imported$models, n = nrow(tip_ranges))
+bgb_lrt <- rbind(
+  hee_bgb_lrt(
+    bgb_compare[bgb_compare$model == "DEC", , drop = FALSE],
+    bgb_compare[bgb_compare$model == "DEC+J", , drop = FALSE]
+  ),
+  hee_bgb_lrt(
+    bgb_compare[bgb_compare$model == "DIVALIKE", , drop = FALSE],
+    bgb_compare[bgb_compare$model == "DIVALIKE+J", , drop = FALSE]
+  ),
+  hee_bgb_lrt(
+    bgb_compare[bgb_compare$model == "BAYAREALIKE", , drop = FALSE],
+    bgb_compare[bgb_compare$model == "BAYAREALIKE+J", , drop = FALSE]
+  )
+)
+A_BGB <- hee_bgb_accessibility(bgb_imported$accessibility)
+
+species_origin <- if ("origin_ma" %in% names(TrData)) {
+  data.frame(species = rownames(TrData), origin_ma = TrData$origin_ma)
+} else {
+  utils::read.csv(file.path(data_root, "species_origin.csv"), check.names = FALSE)
+}
+E_phylo <- hee_phylo_time_mask(
+  tree = phy,
+  times = times,
+  species_origin = species_origin,
+  level = "species_or_lineage"
+)
+
+plate_table <- utils::read.csv(file.path(data_root, "plate_points.csv"), check.names = FALSE)
+plate_points <- hee_import_plate_points(plate_table)
+paleo_points <- hee_reconstruct_points(
+  points = sites,
+  precomputed = plate_points,
+  backend = "user_table"
+)
+paleo_tracks <- hee_extract_paleoenv_track(
+  points = paleo_points,
+  env_cube = env_cube,
+  variables = env_variables,
+  land_only = FALSE
+)
+
+fossils <- utils::read.csv(file.path(data_root, "fossils.csv"))
+fossil_validation <- hee_validate_fossils(
+  fossils = fossils,
+  projection = combined,
+  threshold = 0.5
+)
+```
+
+**怎么解读。** BioGeoBEARS 和 plate correction 不是 HmscEcoEvo 自己“推断过去在哪里”。
+包只接受或调用外部重建结果，并把它们转成可审计的 accessibility、paleo coordinate
+或 validation tables。真实研究缺这些输入时，该模块应明确 skip 或 stop。
+
+## 22-24. 540-0 Ma 投影、地学过程和 Word 报告
+
+```{r case02-deeptime-code, eval=FALSE}
+region_index <- utils::read.csv(file.path(data_root, "region_cube_index.csv"), check.names = FALSE)
+landmask_index <- utils::read.csv(file.path(data_root, "landmask_cube_index.csv"), check.names = FALSE)
+region_cube <- hee_load_timecube(region_index$path[region_index$time_ma == 0][1])
+landmask_cube <- hee_load_timecube(landmask_index$path[landmask_index$time_ma == 0][1])
+
+task_grid <- expand.grid(
+  time_ma = sort(times, decreasing = TRUE),
+  model_id = hee_projection_formula()$model_id,
+  stringsAsFactors = FALSE
+)
+tasks <- cbind(
+  hee_task_table(paste(task_grid$time_ma, task_grid$model_id, sep = "_")),
+  task_grid
+)
+
+projection <- hee_project_hmsc_timecube(
+  evo = evo,
+  env_cube = env_cube,
+  recipe = recipe,
+  times = times,
+  variables = env_variables,
+  land_only = FALSE
+)
+
+extrap <- hee_extrapolation_risk(
+  env_now = XData,
+  env_cube = env_cube,
+  method = c("range", "mahalanobis", "pca", "mess")
+)
+Q_extrap <- hee_extrapolation_weight(extrap, mode = "flag")
+
+combined <- hee_combine_projection_models(
+  suitability = projection,
+  accessibility = A_BGB,
+  phylo_mask = E_phylo,
+  landmask = hee_make_paleo_grid(landmask_cube, times = times, variables = "land_mask_dem", land_only = FALSE),
+  static_filter = static_filter,
+  dynamic_filter = dynamic_filter,
+  extrapolation_weight = Q_extrap,
+  strict = TRUE
+)
+
+richness <- hee_richness(combined)
+area <- hee_area_summary(combined, value = "probability", group_cols = c("model_id", "time_ma"))
+centroid <- hee_centroid_shift(
+  transform(combined, track_id = paste(model_id, species, cell_id, sep = "_"),
+            paleo_lon = lon, paleo_lat = lat),
+  group_col = "track_id"
+)
+turnover <- hee_turnover(combined)
+refugia <- hee_refugia(richness)
+prob0 <- subset(combined, model_id == "M5_env_phylo_bgb_dynamic_dispersal" & time_ma == 0)
+comm0 <- stats::xtabs(probability ~ cell_id + species, prob0)
+cwm <- hee_cwm(comm0, TrData)
+pd <- hee_phylo_diversity(comm0, tree = phy)
+
+geoprocess <- hee_geoprocess_scenario_suite(
+  landscape = NULL,
+  connectivity = NULL,
+  species_traits = TrData,
+  times = times
+)
+
+hee_write_outputs(
+  list(richness = richness, area = area, centroid = centroid,
+       turnover = turnover, refugia = refugia),
+  dir = file.path(case02_output_root, "tables")
+)
+hee_write_ordered_outputs(case02_output_root, include_rds = TRUE, overwrite = TRUE)
+hee_write_full_workflow_report(
+  output_root = case02_output_root,
+  output_file = file.path(case02_output_root, "reports", "hmscecoevo_full_540Ma_workflow.docx"),
+  include_all_figures = TRUE,
+  max_table_rows = 8
+)
+```
+
+**怎么解读。** Full projection 必须覆盖完整 `times`，代表性地图只用于展示。
+`projection_mode = "environment_only"` 是深时默认，避免把现代空间随机效应错误投影到古时间。
+M1-M5 输出中的 probability 必须保持 `[0,1]`，且 land/geographic existence 为 0 或 NA 时强制为 0。
+
+# 一键运行真实模板脚本
+
+```{r case02-run-script, eval=FALSE}
+system2(
+  R.home("bin/Rscript"),
+  c(
+    "scripts/case02_realdata_full_540Ma_template.R",
+    "--data_root=data_raw",
+    "--output=outputs/case02_realdata_full_540Ma_template",
+    "--quick=false",
+    "--chunk_size=5000",
+    "--projection_mode=environment_only"
+  )
+)
+```
+
+# 已完成真实项目的结果图集
+
+```{r case02-result-gallery, fig.cap="Completed Case02 project figures, when a user supplies HMSCECOEVO_CASE02_OUTPUT. Each figure must be generated from the supplied real project inputs."}
+case02_figure_dir <- file.path(case02_output_root, "figures")
+case02_figures <- if (dir.exists(case02_figure_dir)) {
+  sort(list.files(case02_figure_dir, pattern = "\\.png$", full.names = TRUE))
+} else character()
+
+if (!length(case02_figures)) {
+  knitr::kable(
+    data.frame(
+      status = "NO_EMPIRICAL_CASE02_RESULT",
+      required_action = "Set HMSCECOEVO_CASE02_OUTPUT to a completed real-data project directory.",
+      scientific_reason = "The template must not create fake maps, HMSC estimates, or validation figures."
+    ),
+    caption = "Case02 result-gallery status."
+  )
+} else {
+  knitr::include_graphics(case02_figures)
+}
+```
+
+When a real project has completed, this gallery embeds every PNG written to its
+`figures/` directory. The surrounding workflow still requires the reader to
+inspect the input manifest, MCMC diagnostics and independent validation before
+writing scientific conclusions.
+
+# 真实研究结果怎么写
+
+可以写：
+
+- “We fitted a HMSC model using the observed community matrix, 0 Ma environmental layers,
+  measured traits and a time-calibrated phylogeny.”
+- “Deep-time projections used the same 0 Ma training recipe for all palaeoenvironmental
+  layers, and species were masked before their origin ages.”
+- “Projection differences among M1-M5 quantify sensitivity to historical accessibility
+  and dispersal assumptions.”
+
+不能写：
+
+- “HmscEcoEvo inferred true palaeodistributions without fossil or plate-reconstruction data.”
+- “Speciation opportunity equals empirical speciation rate.”
+- “Connectivity or rescue effects prove causal dispersal routes.”
+- “Modern spatial random effects were projected as deep-time biotic interactions.”
+
+# 审稿人常见质疑和回应
+
+| 质疑 | 稳妥回应 |
+|---|---|
+| 0 Ma 与古环境尺度是否一致？ | 使用 `hee_lock_recipe()` 锁定 0 Ma 训练尺度，并用 `hee_apply_recipe()` 应用于所有古环境层。 |
+| 物种为什么能出现在 540 Ma？ | 不能；`hee_phylo_time_mask()` 用 `origin_ma` 强制起源前 probability = 0。 |
+| BioGeoBEARS 没安装怎么办？ | 真实研究应导入外部 BGB 结果；mock 只能用于模拟 Case 1。 |
+| 板块校正依据是什么？ | 依据用户提供的 `plate_points.csv` 或 `rgplates`/`pygplates` 后端，不由本包凭空推断。 |
+| 地学过程是不是因果？ | 不是；多数为 proxy 或 heuristic 情景，需要外部数据和敏感性分析支持。 |

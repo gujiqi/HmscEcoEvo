@@ -1,0 +1,2 @@
+from_region,to_region,time_ma,least_cost_distance_km,barrier_strength,route_open,corridor_suitability,environment_distance,path_method
+R1,R2,100,850,0.35,1,0.72,0.44,external_cost_surface

@@ -1,0 +1,145 @@
+---
+title: "Case05: Patch histories and candidate refugia"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Case05: Patch histories and candidate refugia}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+Case05 uses cells for computation, connected patches for spatial interpretation,
+and plate-carried patch networks for history. These are derived **results**, not
+new biological processes. Case05's six active process interfaces remain Environmental
+filtering, Dispersal, Biotic filtering, Evolution, Speciation, and Extinction.
+
+The completed v8 Case05 source contains 200 extant selected plants, 66 native
+time slices from 325 to 0 Ma, five ancestral-response draws, and four explicit
+dispersal schemes. Its geographic field is a *location-density distribution*
+per active lineage. It is not cell occupancy or historical species richness.
+
+## Six result functions
+
+| Function | Input | Output | Important boundary |
+|---|---|---|---|
+| `hee_result_patches()` | Time-matched environmental support, land area, terrestrial adjacency | Connected supported patches | Support is not occupancy. |
+| `hee_result_patch_links()` | Patch memberships and plate-carriage cell transfer | Directed patch links, including splits/mergers | Carriage is not dispersal. |
+| `hee_result_patch_stability()` | Patches and temporal links | Patch-history networks and link-wise environmental changes | Network-wide SD includes simultaneous spatial heterogeneity. |
+| `hee_result_refugia_candidates()` | Patches, links, supported-area contractions | Candidate ecological refugia | Not confirmed persistence; location mass remains separate. |
+| `hee_result_corridor_flow()` | Joint posterior movement mass on active cell-to-cell edges | Patch-level movement flow | Cannot infer from marginal location maps. |
+| `hee_result_donor_recipient()` | Patch-level joint movement flow | Exporter, recipient, exchange-hub labels | Not demographic source/sink. |
+
+The first four operate on the saved v8 data. The last two are implemented and
+tested, but their **Case05 empirical results remain uncomputed** because v8
+saved location marginals and transition diagnostics, not joint posterior
+source-to-target movement mass. Neither a least-cost line nor the product of
+two location marginals is substituted for this missing object.
+
+This is a limitation of the **saved output**, not a proof that edge posteriors
+are impossible. The pruning code already computes forward and backward branch
+messages. A rerun can reconstruct the transition operators and stream joint
+edge posteriors. It must retain the latent post-diffusion, pre-carriage state:
+the current composed transition is plate carriage multiplied by diffusion, so
+endpoint coordinate changes alone cannot distinguish movement from plate
+motion. A separate time-ordered least-cost graph could show *potential*
+corridors now, but those routes are not posterior use of a corridor.
+
+The v8 geographic state represents one lineage location at a time, rather
+than a population count or a complete occupied geographic range. Even after
+edge posteriors are available, the resulting exporter/recipient labels describe
+modelled lineage-location transitions, not numbers of dispersing seeds or
+demographic source/sink populations.
+
+## Case05 computation
+
+The reproducible runner is
+`scripts/case05_v8_patch_history_results.R`. It uses the installed
+`HmscEcoEvo` functions, the saved HMSC ancestral beta draws, the native
+PALEOMAP carrier tracks, and the four v8 location-density fields. The 4-degree
+grid preserves its original land mask; ocean has no value in PNG or GeoTIFF.
+
+For each active lineage and time, the script applies the time-matched ancestral
+response to the same environmental axes used by the fitted modern HMSC. The
+probit transform is called an *environmental support index* because the modern
+prevalence intercept and observation process are deliberately not interpreted
+as an ancestral ecological niche. At each time, supported land is identified
+with an explicitly chosen 0.6 index threshold. The threshold is a scenario
+choice, not a fitted survival probability.
+
+Three representative extant tips are followed along their unique ancestral
+paths: `Ilex_aquifolium`, `Camellia_sinensis`, and
+`Jasminum_officinale`. Each time slice is partitioned into connected supported
+patches. The original 1-degree carrier `track_id` correspondence determines
+how their 4-degree patches overlap between successive palaeogeographies; this
+can yield one-to-many splits and many-to-one mergers. A link does not prove a
+population persisted through the interval.
+
+The full set of active lineages is used for environmental-opportunity maps and
+tables, while patch histories and refugia candidates are explicitly limited
+to these three illustrated tip-to-root paths. The analysis does not silently
+extrapolate the focal patch results to all 200 species.
+
+An environmental-opportunity contraction is recorded when supported land area
+on one focal ancestral path drops by at least 10% between native 5-Myr slices.
+A contraction-surviving patch must be at least 100,000 km2, have incoming
+carriage from a supported older patch, and retain another carriage link into
+the next slice. The package returns an explicitly named *candidate ecological
+refugium*. A second 25% contraction cutoff is saved as a sensitivity check.
+The four dispersal schemes are compared by integrating each lineage's separate
+location density over supported cells; this does not multiply geography by
+environment or turn the result into occupancy.
+
+For extrapolation, a cell is flagged when any of the eight historical input
+axes falls outside the 1st-99th percentile range of the corresponding modern
+HMSC training data. This is a separate diagnostic, never a penalty on
+biological probability. Because the eight-axis envelope is a simple marginal
+range screen, it does not establish full multivariate analog status.
+
+## Reading the outputs
+
+The result folder is
+`outputs/HmscEcoEvo/case05_v8_four_scheme_comparison_20260926/08_patch_history_results`
+under the project root. `all_active_lineages_environmental_opportunity.csv`
+contains the full 200-tip, 66-time opportunity audit; the number of active
+ancestral branches naturally changes with time. `*_patch_cells.csv` and
+`*_patches.csv` give exact spatial memberships and summaries. The
+`*_plate_carried_patch_links.csv` files retain split and merger structure.
+`*_link_environmental_changes.csv` separates change along a link from
+variation among simultaneous patches. `*_candidate_refugia.csv` identifies
+contraction-surviving candidates with an independent location-mass evidence
+column. `not_computed_evidence_gates.csv` records the unavailable outputs.
+
+The `maps/` folder contains PNG for viewing and GeoTIFF for numerical reuse.
+All corresponding panels use the same 0-1 support-index scale or the same
+declared categorical evidence classes. The sea is NA, not zero.
+
+## Why these distinctions matter
+
+Keppel et al. define refugia through environment, space and time, including
+retreat, persistence and possible later expansion. Gavin et al. argue that
+fossils, distribution models and phylogeography provide complementary evidence.
+Accordingly, Case05's present outputs are *candidates*, not validated ancient
+populations. Martensen et al. show why connectivity must be considered across
+dynamic habitat patches; the package's carriage links are only the geographic
+continuity substrate, not their full reachable-habitat metric. TARDIS uses
+time-ordered landscape graphs for possible deep-time routes; the Case05 v8
+output does not yet contain joint posterior route use. McRae et al.'s circuit
+current is likewise not silently renamed posterior flow. Pulliam's source/sink
+classification requires reproduction and mortality, which the present
+phylogeographic case does not estimate.
+
+## Primary references
+
+- Keppel, G. et al. (2012), *Global Ecology and Biogeography* 21:393-404,
+  <https://doi.org/10.1111/j.1466-8238.2011.00686.x>.
+- Gavin, D. G. et al. (2014), *New Phytologist* 204:37-54,
+  <https://doi.org/10.1111/nph.12929>.
+- Martensen, A. C. et al. (2017), *Methods in Ecology and Evolution*,
+  <https://doi.org/10.1111/2041-210X.12799>.
+- Tang, C. Q. et al. (2018), *Nature Communications* 9:4488,
+  <https://doi.org/10.1038/s41467-018-06837-3>.
+- McRae, B. H. et al. (2008), *Ecology* 89:2712-2724,
+  <https://doi.org/10.1890/07-1861.1>.
+- Flannery-Sutherland, J. T. et al. (2025), *Nature Ecology & Evolution*
+  9:1138-1152, <https://doi.org/10.1038/s41559-025-02739-y>.
+- Pulliam, H. R. (1988), *The American Naturalist* 132:652-661,
+  <https://doi.org/10.1086/284880>.

@@ -1,0 +1,146 @@
+---
+title: "06. Historical Biogeography And Plate Correction"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{06. Historical Biogeography And Plate Correction}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4)
+```
+
+# Scientific Question
+
+HMSC can project environmental suitability, but historical accessibility and
+palaeo-coordinates are not estimated by HMSC. This vignette explains how
+BioGeoBEARS outputs and plate reconstructions enter HmscEcoEvo as external
+inputs.
+When example tables are simulated they are mock data. Accessibility summaries
+and plate-corrected contrasts may be proxy or heuristic inputs to M1-M5; they
+are non-causal scenario components unless supported by real external data.
+State limitations and real-data requirements in reports.
+
+# BioGeoBEARS Inputs
+
+Candidate historical-biogeography models should include DEC, DEC+J, DIVALIKE,
+DIVALIKE+J, BAYAREALIKE and BAYAREALIKE+J when the study design supports them.
+HmscEcoEvo can prepare, run through an external installation, import, compare
+and summarize them with:
+
+`hee_bgb_prepare()`, `hee_bgb_run_models()`, `hee_bgb_import()`,
+`hee_bgb_compare()`, `hee_bgb_lrt()`, `hee_bgb_bsm()` and
+`hee_bgb_accessibility()`.
+
+```{r bgb-model-table}
+bgb_models <- data.frame(
+  model = c("DEC", "DEC+J", "DIVALIKE", "DIVALIKE+J", "BAYAREALIKE", "BAYAREALIKE+J"),
+  nested_pair = c("DEC vs DEC+J", "DEC vs DEC+J",
+                  "DIVALIKE vs DIVALIKE+J", "DIVALIKE vs DIVALIKE+J",
+                  "BAYAREALIKE vs BAYAREALIKE+J", "BAYAREALIKE vs BAYAREALIKE+J"),
+  required_output = "model, logLik, n_parameters, d, e, j, AIC, AICc, delta_AICc, AICc_weight"
+)
+knitr::kable(bgb_models, caption = "BioGeoBEARS candidate model family.")
+```
+
+# Quick Code
+
+```{r quick-bgb}
+library(HmscEcoEvo)
+
+models <- data.frame(
+  model = c("DEC", "DEC+J", "DIVALIKE", "DIVALIKE+J", "BAYAREALIKE", "BAYAREALIKE+J"),
+  logLik = c(-120, -116, -125, -118, -130, -126),
+  n_parameters = c(2, 3, 2, 3, 2, 3),
+  d = c(0.02, 0.02, 0.01, 0.01, 0.03, 0.03),
+  e = c(0.01, 0.01, 0.02, 0.02, 0.01, 0.01),
+  j = c(0, 0.04, 0, 0.03, 0, 0.02)
+)
+cmp <- hee_bgb_compare(models, n = 30)
+lrt <- hee_bgb_lrt(models[models$model == "DEC", ],
+                   models[models$model == "DEC+J", ])
+cmp[, c("model", "AICc", "delta_AICc", "AICc_weight")]
+lrt
+```
+
+# Model-Averaged Accessibility
+
+If model-specific accessibility is available, model averaging should be:
+
+`A_final[j, region, t] = sum_m weight_m * A_m[j, region, t]`.
+
+```{r bgb-accessibility, eval=FALSE}
+A_BGB <- hee_bgb_accessibility(
+  model_accessibility = accessibility_by_model,
+  weights = cmp[, c("model", "AICc_weight")]
+)
+```
+
+Mock BioGeoBEARS output is acceptable only in Case 1 simulated demonstrations
+and must be labelled mock. Case 2 real-data templates must stop or skip the
+section if no real BGB output is provided.
+
+# BSM Event Tables
+
+`hee_bgb_bsm()` expects or returns event records with:
+`simulation_id`, `model`, `tree_id`, `time_ma`, `branch_or_node`,
+`event_type`, `from_area`, `to_area`, `ancestor_range` and `descendant_range`.
+Plot BSM event histograms, source/sink heatmaps and dispersal networks as
+summaries of the imported stochastic mapping output.
+
+# Plate Correction
+
+The package does not know past locations from modern points. Correct
+palaeo-coordinate workflows require external plate reconstructions:
+
+1. present `lon/lat`;
+2. plate model or user table giving `paleo_lon/paleo_lat` for each `time_ma`;
+3. extract palaeoenvironment at the reconstructed coordinates;
+4. compare corrected and uncorrected tracks.
+
+```{r plate-schema}
+plate_schema <- data.frame(
+  backend = c("user_table", "rgplates", "pygplates"),
+  package_role = c(
+    "read already reconstructed palaeo-coordinates",
+    "interface boundary; external software does rotation",
+    "interface boundary; Python/pygplates does rotation"
+  ),
+  required_columns = c(
+    "point_id, time_ma, paleo_lon, paleo_lat, optional plate_id",
+    "point_id, lon, lat, time_ma, plate_id or model metadata",
+    "point_id, lon, lat, time_ma, plate_id or model metadata"
+  )
+)
+knitr::kable(plate_schema, caption = "Plate-correction backends and boundaries.")
+```
+
+```{r plate-code, eval=FALSE}
+plate_points <- hee_import_plate_points("data_raw/plate_points.csv")
+paleo_points <- hee_reconstruct_points(
+  points = modern_points,
+  precomputed = plate_points,
+  backend = "user_table"
+)
+track_env <- hee_extract_paleoenv_track(
+  paleo_points,
+  env_cube,
+  variables = c("bio1", "bio12", "elev")
+)
+comparison <- hee_compare_plate_corrected(modern_points, paleo_points)
+```
+
+# Figure Interpretation
+
+Plate figures should show present versus palaeo points, tectonic tracks through
+`time_ma`, plate IDs, plate-corrected versus uncorrected environmental
+differences, and plate-corrected versus uncorrected richness differences. If
+modern coordinates are directly used to extract 100 Ma raster values in a
+tectonic-track analysis, the workflow is scientifically wrong.
+
+# Interpretation Boundary
+
+BioGeoBEARS accessibility is a historical-biogeographic model output, not an
+HMSC estimate. Plate-corrected coordinates are external geological
+reconstructions, not inferred by HmscEcoEvo.

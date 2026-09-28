@@ -1,0 +1,40 @@
+Package: HmscEcoEvo
+Type: Package
+Title: Eco-Evolutionary Diagnostics for HMSC and Historical Predictors
+Version: 1.0.4
+Authors@R: person("Jiqi", "GU", email = "bryophyteecology@gmail.com", role = c("aut", "cre"))
+Author: Jiqi GU [aut, cre]
+Maintainer: Jiqi GU <bryophyteecology@gmail.com>
+Description: Integrates HMSC model outputs into an eco-evolutionary diagnostic workflow while preserving the historical-biogeography predictor workflow from hmscHist. The package standardizes historical tables, calculates HMSC-ready historical indices, extracts Beta, Gamma, Rho, Omega, posterior draws, traits, phylogeny, historical predictors, and optional population or time-series data, computes seven families of niche, phylogenetic-signal, evolutionary-transition, trait-mediation, Gamma-evolution, population-evolution, and validation diagnostics, and implements HmscEE as a Dynamic Earth-Biota Assembly Framework. The current process catalog names six biological processes: environmental filtering, dispersal, biotic filtering, evolution, speciation, and extinction. Colonisation and persistence remain optional state-transition terms in legacy dynamic-occupancy scenarios, not extra processes or calibrated outputs of the current phylogeographic Case05. The package includes landscape-explicit, area-aware spherical dispersal kernels, sparse time-ordered movement graphs, explicit plate-carriage transport, and finite-state phylogeographic pruning constraints. BioGeoBEARS/BSM can supply optional macro-scale lineage-by-region history; alternatively, an explicitly global grid model can be used without treating plate carriage as organismal dispersal. HMSC and phylogenetic response reconstruction supply environmental support, while palaeo-Earth layers supply environment, habitat existence and movement landscape. Climate, geology, geography, habitat history, BioGeoBEARS, dated trees, fossils, extrapolation and phyloregion summaries are treated as drivers, constraints, observations, uncertainty or results rather than extra biological processes. Extrapolation and no-analog diagnostics are reported as epistemic uncertainty rather than multiplied into biological probability. It does not replace Hmsc, BioGeoBEARS, plate-reconstruction software, bayou, SURFACE, phylogenetic comparative packages, or causal eco-evolutionary models.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Depends: R (>= 4.1.0)
+Imports: stats, utils, methods
+Suggests:
+    testthat (>= 3.0.0),
+    roxygen2,
+    knitr,
+    rmarkdown,
+    Hmsc,
+    ape,
+    coda,
+    ggplot2,
+    patchwork,
+    gridExtra,
+    scales,
+    pkgload,
+    officer,
+    terra,
+    Matrix,
+    phytools,
+    geiger,
+    phylosignal,
+    phylobase,
+    gifski,
+    av,
+    RANN
+VignetteBuilder: knitr
+Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0
+RoxygenNote: 7.3.3

@@ -1,0 +1,12 @@
+event_id,region,time,descendant_species,event_prob,event_type
+e1,A,90,sp1,0.8,insitu
+e2,B,72,sp2,0.9,insitu
+e3,B,64,sp3,0.85,insitu
+e4,C,69,sp4,0.75,insitu
+e5,B,58,sp5,0.8,insitu
+e6,C,86,sp6,0.92,insitu
+e7,A,74,sp7,0.78,insitu
+e8,C,82,sp8,0.88,insitu
+e9,A,50,sp4,0.45,insitu
+e10,B,42,sp7,0.38,insitu
+e11,C,36,sp5,0.4,insitu

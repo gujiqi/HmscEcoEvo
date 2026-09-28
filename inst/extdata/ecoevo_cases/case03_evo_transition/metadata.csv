@@ -1,0 +1,2 @@
+"case_id","case_name","linear_axes","analysis_axes","tree_time_unit","root_age"
+3,"case03_evo_transition","temp;precip;forest;soil;pH","temp;precip;forest;soil;pH;temp_sq;precip_sq;forest_sq;soil_sq;pH_sq","Ma",67.0001
